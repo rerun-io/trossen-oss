@@ -1,0 +1,20 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Source episodes (machine-specific symlink on dev boxes; HF download for users)
+/data
+
+# Generated RRD artifacts
+/outputs
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.pyrefly_cache/
+
+# Notebook checkpoints
+.ipynb_checkpoints/

@@ -1,0 +1,27 @@
+# Single-package Pyrefly config for trossen-oss.
+project-includes = ["src/**/*"]
+project-excludes = ["**/node_modules", "**/__pycache__", "**/*venv/**/*", "**/.pixi/**/*"]
+
+# Use only the explicit search-path below, not per-file heuristics.
+disable-search-path-heuristics = true
+
+# First-party import root (src-layout package "trossen_oss").
+search-path = ["src"]
+
+# Third-party packages resolved from the dev environment's site-packages.
+# rerun-sdk ships a rerun_sdk.pth that adds a subdirectory at runtime; Pyrefly
+# does not process .pth files, so that subdirectory is listed explicitly.
+site-package-path = [
+    ".pixi/envs/dev/lib/python3.12/site-packages",
+    ".pixi/envs/dev/lib/python3.12/site-packages/rerun_sdk",
+]
+
+python-interpreter-path = ".pixi/envs/dev/bin/python"
+
+# No "tensor-shapes" key: in pyrefly 1.1 it is a deprecated no-op that triggers an
+# "Extra keys found in config" warning. Shape checking is enabled implicitly by
+# making the `shape_extensions` package resolvable, and it is torch.Tensor-only —
+# it does NOT apply to the Float[np.ndarray, ...] jaxtyping annotations used here,
+# which are validated at runtime by beartype+jaxtyping. Revisit at the training
+# step: once torch is installed, add pyrefly's tensor-shapes/ dir to search-path
+# (so `shape_extensions` + torch-stubs resolve) to get static torch shape checks.
