@@ -38,6 +38,10 @@ ffmpeg = ">=8.0.0,<9"
 trossen_oss = { path = ".", editable = true }
 rerun-sdk = { version = "==0.33.0", extras = ["catalog", "datafusion"] }
 
+[tool.pixi.tasks.download]
+cmd = "python -m trossen_oss.download"
+description = "Download episode MCAPs from the Hugging Face Hub into data/"
+
 # Dev feature — type-checking, linting, tests. Enables beartype at import time
 # via PIXI_DEV_MODE so default/production runs carry no runtime checking cost.
 [tool.pixi.feature.dev.dependencies]

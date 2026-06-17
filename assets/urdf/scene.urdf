@@ -1,0 +1,677 @@
+<?xml version="1.0"?>
+<robot name="trossen_ai_scene">
+
+  <!-- World link as base -->
+  <link name="world"/>
+
+  <!-- Table -->
+  <link name="table">
+    <visual>
+      <origin xyz="0 0 -0.75" rpy="0.0000 0.0000 1.5708"/>
+      <geometry>
+        <mesh filename="meshes/tabletop.obj"/>
+      </geometry>
+      <material name="table_material">
+        <color rgba="0.15 0.15 0.15 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.1009" rpy="0 0 0"/>
+      <geometry>
+        <box size="1.22 0.74 0.2"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="world_to_table" type="fixed">
+    <parent link="world"/>
+    <child link="table"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Table legs -->
+  <link name="table_legs">
+    <visual>
+      <origin xyz="0 0 -0.75" rpy="0.0000 0.0000 1.5708"/>
+      <geometry>
+        <mesh filename="meshes/tablelegs.obj"/>
+      </geometry>
+      <material name="table_material">
+        <color rgba="0.15 0.15 0.15 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="table_to_legs" type="fixed">
+    <parent link="table"/>
+    <child link="table_legs"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Frame Structure Components -->
+  
+  <!-- Frame extrusion 1 -->
+  <link name="frame_extrusion_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 -1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_2040_880.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_frame_1" type="fixed">
+    <parent link="world"/>
+    <child link="frame_extrusion_1"/>
+    <origin xyz="0.44 -0.361 1.03" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- Frame extrusion 2 -->
+  <link name="frame_extrusion_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_2040_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_frame_2" type="fixed">
+    <parent link="world"/>
+    <child link="frame_extrusion_2"/>
+    <origin xyz="-0.43 -0.361 1.02" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Frame extrusion 3 -->
+  <link name="frame_extrusion_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_2040_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_frame_3" type="fixed">
+    <parent link="world"/>
+    <child link="frame_extrusion_3"/>
+    <origin xyz="0.43 -0.361 1.02" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Vertical extrusion supports -->
+  <link name="vertical_extrusion_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_1220.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_vertical_1" type="fixed">
+    <parent link="world"/>
+    <child link="vertical_extrusion_1"/>
+    <origin xyz="-0.61 -0.391 -0.01" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- Vertical extrusion support 2 -->
+  <link name="vertical_extrusion_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_1220.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_vertical_2" type="fixed">
+    <parent link="world"/>
+    <child link="vertical_extrusion_2"/>
+    <origin xyz="-0.61 0.369 0.01" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- Corner brackets -->
+  <link name="corner_bracket_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/corner_bracket.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_bracket_1" type="fixed">
+    <parent link="world"/>
+    <child link="corner_bracket_1"/>
+    <origin xyz="0.44 -0.383 1.04" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Overhead mount -->
+  <link name="overhead_mount">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/overhead_mount.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_overhead" type="fixed">
+    <parent link="world"/>
+    <child link="overhead_mount"/>
+    <origin xyz="0 -0.351 1.03" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Wormseye mount -->
+  <link name="wormseye_mount">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/wormseye_mount.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_wormseye" type="fixed">
+    <parent link="world"/>
+    <child link="wormseye_mount"/>
+    <origin xyz="0 -0.391 -0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Camera mounts -->
+  <link name="cam_high">
+    <visual>
+      <origin xyz="0 0 0" rpy="2.7053 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/d405_solid.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_cam_high" type="fixed">
+    <parent link="world"/>
+    <child link="cam_high"/>
+    <origin xyz="0 -0.303794 1.02524" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cam_high_optical">
+  </link>
+
+  <joint name="cam_high_to_optical" type="fixed">
+    <parent link="cam_high"/>
+    <child link="cam_high_optical"/>
+    <origin xyz="0 0 0" rpy="0.436292653593 3.1416 3.1416"/>
+  </joint>
+
+  <link name="cam_low">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.4748 0.0000 -3.1416"/>
+      <geometry>
+        <mesh filename="meshes/d405_solid.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_cam_low" type="fixed">
+    <parent link="world"/>
+    <child link="cam_low"/>
+    <origin xyz="0 -0.377167 0.0316055" rpy="0 0 0"/>
+  </joint>
+
+  <link name="cam_low_optical">
+  </link>
+
+  <joint name="cam_low_to_optical" type="fixed">
+    <parent link="cam_low"/>
+    <child link="cam_low_optical"/>
+    <origin xyz="0 0 0" rpy="1.66679265359 3.1416 3.1416"/>
+  </joint>
+
+  <!-- Angled extrusions -->
+  <link name="angled_extrusion_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.7848 0.0000 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/angled_extrusion.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_angled_1" type="fixed">
+    <parent link="world"/>
+    <child link="angled_extrusion_1"/>
+    <origin xyz="-0.43 -0.24 0.12" rpy="0 0 0"/>
+  </joint>
+
+  <link name="angled_extrusion_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.7848 0.0000 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/angled_extrusion.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_angled_2" type="fixed">
+    <parent link="world"/>
+    <child link="angled_extrusion_2"/>
+    <origin xyz="0.6 -0.26 0.12" rpy="0 0 0"/>
+  </joint>
+
+  <link name="angled_extrusion_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.7848 0.0000 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/angled_extrusion.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_angled_3" type="fixed">
+    <parent link="world"/>
+    <child link="angled_extrusion_3"/>
+    <origin xyz="0.43 -0.24 0.12" rpy="0 0 0"/>
+  </joint>
+
+  <link name="angled_extrusion_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.7848 0.0000 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/angled_extrusion.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_angled_4" type="fixed">
+    <parent link="world"/>
+    <child link="angled_extrusion_4"/>
+    <origin xyz="-0.6 -0.26 0.12" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Additional Frame Components -->
+  
+  <!-- extrusion_150_1 -->
+  <link name="extrusion_150_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 -1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_150.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_150_1" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_150_1"/>
+    <origin xyz="0.44 -0.371 0.61" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_150_2 -->
+  <link name="extrusion_150_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_150.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_150_2" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_150_2"/>
+    <origin xyz="-0.59 -0.371 0.61" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- corner_bracket_2 -->
+  <link name="corner_bracket_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/corner_bracket.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_corner_bracket_2" type="fixed">
+    <parent link="world"/>
+    <child link="corner_bracket_2"/>
+    <origin xyz="0.42 -0.383 0.62" rpy="0 0 -1.5708"/>
+  </joint>
+
+  <!-- corner_bracket_3 -->
+  <link name="corner_bracket_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/corner_bracket.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_corner_bracket_3" type="fixed">
+    <parent link="world"/>
+    <child link="corner_bracket_3"/>
+    <origin xyz="0.61 -0.383 0.62" rpy="0 0 0"/>
+  </joint>
+
+  <!-- corner_bracket_4 -->
+  <link name="corner_bracket_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/corner_bracket.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_corner_bracket_4" type="fixed">
+    <parent link="world"/>
+    <child link="corner_bracket_4"/>
+    <origin xyz="-0.61 -0.383 0.62" rpy="0 0 -1.5708"/>
+  </joint>
+
+  <!-- extrusion_150_3 -->
+  <link name="extrusion_150_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_150.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_150_3" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_150_3"/>
+    <origin xyz="-0.59 -0.066 0.01" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- extrusion_600_1 -->
+  <link name="extrusion_600_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_600.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_600_1" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_600_1"/>
+    <origin xyz="-0.6 -0.371 0.62" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_150_4 -->
+  <link name="extrusion_150_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 -1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_150.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_150_4" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_150_4"/>
+    <origin xyz="0.44 -0.631 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_1000_1 -->
+  <link name="extrusion_1000_1">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 -1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_1000_1" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_1000_1"/>
+    <origin xyz="-0.43 -0.641 0.01" rpy="0 0 1.5708"/>
+  </joint>
+
+  <!-- extrusion_150_5 -->
+  <link name="extrusion_150_5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 -1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_150.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_150_5" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_150_5"/>
+    <origin xyz="0.44 -0.066 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- corner_bracket_5 -->
+  <link name="corner_bracket_5">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/corner_bracket.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_corner_bracket_5" type="fixed">
+    <parent link="world"/>
+    <child link="corner_bracket_5"/>
+    <origin xyz="-0.44 -0.383 1.04" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_1000_2 -->
+  <link name="extrusion_1000_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_1000_2" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_1000_2"/>
+    <origin xyz="0.43 -0.641 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_1000_3 -->
+  <link name="extrusion_1000_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_1000_3" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_1000_3"/>
+    <origin xyz="0.6 -0.641 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_150_6 -->
+  <link name="extrusion_150_6">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 1.5708 0.0000"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_150.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_150_6" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_150_6"/>
+    <origin xyz="-0.59 -0.631 0.01" rpy="0 0 3.1416"/>
+  </joint>
+
+  <!-- corner_bracket_6 -->
+  <link name="corner_bracket_6">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/corner_bracket.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_corner_bracket_6" type="fixed">
+    <parent link="world"/>
+    <child link="corner_bracket_6"/>
+    <origin xyz="-0.42 -0.383 0.62" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_1000_4 -->
+  <link name="extrusion_1000_4">
+    <visual>
+      <origin xyz="0 0 0" rpy="-1.5708 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_1000_4" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_1000_4"/>
+    <origin xyz="-0.6 -0.641 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_600_2 -->
+  <link name="extrusion_600_2">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 0.0000 1.5708"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_600.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_600_2" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_600_2"/>
+    <origin xyz="0.6 -0.371 0.62" rpy="0 0 0"/>
+  </joint>
+
+  <!-- extrusion_2040_1000_3 -->
+  <link name="extrusion_2040_1000_3">
+    <visual>
+      <origin xyz="0 0 0" rpy="0.0000 0.0000 3.1416"/>
+      <geometry>
+        <mesh filename="meshes/extrusion_2040_1000.stl"/>
+      </geometry>
+      <material name="metal_material">
+        <color rgba="0.517 0.529 0.537 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="world_to_extrusion_2040_1000_3" type="fixed">
+    <parent link="world"/>
+    <child link="extrusion_2040_1000_3"/>
+    <origin xyz="0.43 -0.361 1.02" rpy="0 0 0"/>
+  </joint>
+
+</robot>
