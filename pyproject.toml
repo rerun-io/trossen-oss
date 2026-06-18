@@ -30,7 +30,6 @@ pyarrow = "*"
 jaxtyping = "<0.3"
 pyserde = ">=0.31.2,<0.32"
 huggingface_hub = "*"
-hf-transfer = "*"
 av = ">=15,<16"
 ffmpeg = ">=8.0.0,<9"
 
@@ -38,9 +37,17 @@ ffmpeg = ">=8.0.0,<9"
 trossen_oss = { path = ".", editable = true }
 rerun-sdk = { version = "==0.33.0", extras = ["catalog", "datafusion"] }
 
+# Episode download. PLACEHOLDER repo id — update both tasks once the dataset is
+# published. The OSS dataset publishes 100 episodes max. `download` fetches 10
+# sample episodes (0-9); the guard makes it a no-op when data/ already exists
+# (e.g. the dev-machine symlink). `download-all` fetches all 100 (0-99).
 [tool.pixi.tasks.download]
-cmd = "python -m trossen_oss.download"
-description = "Download episode MCAPs from the Hugging Face Hub into data/"
+cmd = "test -e data/episode_0_proto.mcap || hf download pablovela5620/trossen-mjwarp-episodes --repo-type dataset --include 'episode_[0-9]_proto.mcap' --local-dir data/"
+description = "Download 10 sample episode MCAPs from the Hugging Face Hub into data/"
+
+[tool.pixi.tasks.download-all]
+cmd = "hf download pablovela5620/trossen-mjwarp-episodes --repo-type dataset --include 'episode_[0-9]_proto.mcap' --include 'episode_[1-9][0-9]_proto.mcap' --local-dir data/"
+description = "Download all 100 episode MCAPs from the Hugging Face Hub into data/"
 
 # Dev feature — type-checking, linting, tests. Enables beartype at import time
 # via PIXI_DEV_MODE so default/production runs carry no runtime checking cost.

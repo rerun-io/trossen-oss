@@ -23,18 +23,6 @@ EPISODE_MCAP_GLOB: str = "episode_*_proto.mcap"
 """Glob matching source episode MCAP files."""
 
 
-def episode_mcap_name(index: int) -> str:
-    """Return the source MCAP filename for an episode index.
-
-    Args:
-        index: Zero-based episode number.
-
-    Returns:
-        The episode MCAP filename, e.g. ``"episode_0_proto.mcap"``.
-    """
-    return f"episode_{index}_proto.mcap"
-
-
 def data_dir() -> Path:
     """Return the episode source directory.
 

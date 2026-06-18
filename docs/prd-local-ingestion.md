@@ -63,10 +63,10 @@ stays observation-only and reproducible on a laptop/workstation.
    internal data mount.
 8. As a user, I want the download to be skippable when the data already exists, so
    that re-running tasks does not re-fetch gigabytes.
-9. As a user, I want to download only a subset of episodes (default ~100), so that
-   I can iterate quickly without pulling all 1024 episodes (~189 GB).
-10. As an advanced user, I want to optionally download the full episode set, so
-    that I can scale up when needed.
+9. As a user, I want a download task that fetches a small sample (10 episodes), so
+   that I can iterate quickly without pulling the whole published dataset.
+10. As a user, I want a download-all task that fetches all 100 published episodes,
+    so that I can run the full OSS dataset.
 11. As a user, I want the robot URDF and meshes vendored in the repo, so that the
     model layer renders without any external download.
 12. As a user, I want a `convert`/ingest task that turns one or more episode MCAPs
@@ -162,7 +162,9 @@ stays observation-only and reproducible on a laptop/workstation.
   and a `--episodes-dir` CLI flag, so nothing is hard-bound to the symlink.
 - HF-resolved paths must not be canonicalized to the cache blob; the
   extension-bearing path is preserved so Rerun's loader accepts the file.
-- Default working subset is ~100 episodes; an opt-in path covers the full set.
+- The published OSS dataset is capped at 100 episodes (the internal corpus has
+  1024, but only 100 are published). The `download` task fetches 10 sample
+  episodes; `download-all` fetches all 100.
 - The robot model (URDF files + meshes) is vendored in the repo under an assets
   directory and is never downloaded.
 - Generated RRDs are written to a dedicated git-ignored output directory, always
@@ -265,17 +267,17 @@ stays observation-only and reproducible on a laptop/workstation.
 - **The final Hugging Face dataset** — the real `repo_id`/owner and the dataset
   upload itself are TBD; a clearly-marked placeholder is used.
 - **Persistent server storage** — the local OSS server is in-memory by design.
-- **Full-scale 1024-episode runs** as the default — supported as an opt-in, but
-  development targets ~100 episodes.
+- **The full 1024-episode internal corpus** — the published OSS dataset is capped
+  at 100 episodes; the larger internal set is not published or processed here.
 - **Model quality** — when training lands, the bar is proving the
   register→dataloader→train loop, not accuracy.
 
 ## Further Notes
 
-- Sizing: each episode MCAP is ~188 MB (camera H.264 dominates); ~100 episodes is
-  ~19 GB of source. Base RRDs are the same order (video passes through largely
-  unchanged), so budget ~35–40 GB on disk for source + RRDs at 100 episodes.
-  The full set is ~189 GB of source.
+- Sizing: each episode MCAP is ~188 MB (camera H.264 dominates), so the full
+  100-episode OSS dataset is ~19 GB of source and the 10-episode `download` sample
+  is ~1.9 GB. Base RRDs are the same order (video passes through largely
+  unchanged), so budget ~35–40 GB on disk for source + RRDs at the full 100.
 - In-memory server implies a predictable workflow: start server → register →
   query, and re-register after any restart.
 - When training is built, the dataloader requires
