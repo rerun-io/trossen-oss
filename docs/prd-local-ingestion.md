@@ -38,7 +38,7 @@ pipeline against a local Rerun OSS catalog server:
 5. **Query** — run DataFusion queries against the local catalog, both from a
    headless smoke script and from interactive notebooks that embed the Rerun
    viewer.
-6. **Train** — *(deferred; see Out of Scope.)*
+6. **Train / Deploy** — *(future stages; see Roadmap and Out of Scope.)*
 
 The cloud-only machinery (S3, Modal, the remote catalog) is removed. The runtime
 stays observation-only and reproducible on a laptop/workstation.
@@ -149,7 +149,8 @@ stays observation-only and reproducible on a laptop/workstation.
 - Runtime: `rerun-sdk[catalog,datafusion]==0.33.0` (from PyPI), `numpy`,
   `pyarrow`, `jaxtyping`, `pyserde`, `huggingface_hub` (Xet transfer; `hf-transfer`
   was dropped), `tyro`, `tqdm`, plus video decode support (av/ffmpeg).
-  conda-forge channel. `jupyterlab`/`dataloader` are added at the notebook/training steps.
+  conda-forge channel. The notebook step adds `jupyterlab` (conda-forge) and
+  `rerun-notebook==0.33.0` (PyPI); `dataloader` (torch) is added at the training step.
 - Removed relative to the proof-of-concept: `boto3`/S3, `modal`, and the remote
   catalog re-registration path.
 
@@ -157,8 +158,8 @@ stays observation-only and reproducible on a laptop/workstation.
 - A `data/` directory is the single read location for source episodes. On a dev
   machine it is a git-ignored symlink to the existing episode directory; for real
   users an idempotent Hugging Face download task populates the same directory
-  (`--local-dir data/`, guarded by an existence check). A placeholder dataset
-  `repo_id` is used until the real Hugging Face dataset identity is decided.
+  (`--local-dir data/`, guarded by an existence check) from the public dataset
+  `pablovela5620/trossen-mjwarp-episodes`.
 - Episode location is overridable via the `--data-dir` CLI flag (default `data/`),
   so nothing is hard-bound to the symlink. Paths are plain `PreprocessingConfig`
   fields (tyro flags) rather than environment variables.
@@ -215,18 +216,25 @@ stays observation-only and reproducible on a laptop/workstation.
   conversion time, or register it as a sibling segment.
 
 ### Query
-- A headless smoke script connects to the local catalog, reads segment metadata,
-  and runs one content-level DataFusion query, printing results — runnable
-  without a browser.
-- Three notebooks are ported from the proof-of-concept and filled in with the
-  real schema (timeline `timestamp`, real entity paths and components): an
-  overview/welcome notebook, a DataFrame-API analysis notebook, and a SQL
-  analysis notebook. Each connects via `CatalogClient` and embeds the Rerun
-  viewer pointed at the local server. SQL queries register views on the client's
-  DataFusion context; DataFrame queries use the dataset's filtered reader.
-- Server URL and dataset name are configuration fields with sensible defaults
-  (`CatalogConfig.catalog_url` / `dataset_name`, exposed as `--catalog-url` /
-  `--dataset-name`), so the same notebooks work against any catalog URL.
+- A headless smoke script (`pixi run query`) connects to the local catalog, reads
+  segment metadata, and runs cross-episode DataFusion queries, printing results —
+  runnable without a browser. The questions are real quality signals, not toy
+  counts: per-arm joint travel (which arm is scripted vs. task-driven) and
+  per-joint velocity-limit violations (finite-difference velocity vs. the URDF
+  limit, via window functions).
+- Three notebooks under `notebooks/` (`pixi run notebook`) are ported from the
+  proof-of-concept and filled in with the real schema (timeline
+  `message_log_time`, per-joint `Scalars` at `/robot_*/joints/<joint>`): an
+  overview/welcome notebook, a SQL analysis notebook, and a DataFrame-API analysis
+  notebook. Each connects via `CatalogClient` and embeds the Rerun viewer pointed
+  at the local server, and reuses the `trossen_oss.query` helpers so the
+  notebooks are the interactive face of the same queries the smoke script runs.
+  SQL queries register views on the client's DataFusion context; DataFrame queries
+  use the dataset's filtered reader.
+- Server URL and dataset name are notebook environment overrides
+  (`RERUN_CLOUD_ADDR` / `DATASET_NAME`) defaulting to the local catalog and
+  `trossen_oss`, mirroring `QueryConfig`'s `--catalog-url` / `--dataset-name`, so
+  the same notebooks work against any catalog URL.
 
 ### Blueprint
 - The proof-of-concept's default blueprint is ported and registered on the
@@ -258,6 +266,31 @@ stays observation-only and reproducible on a laptop/workstation.
   seam) skip gracefully when the data mount/episode is unavailable, so the suite
   is runnable without the internal data.
 
+## Roadmap (gaps vs. the Rerun experiment loop)
+
+The reference course frames the loop as **Collect → Refine → Train → Deploy**
+(Refine = register + enrich + query). A triple-checked audit against that course
+found Collect and Refine's *register* + *query* complete, with these gaps:
+
+- **Refine · enrich** (partial — the one in-scope surprise): derived signals (FK
+  `/tf`, per-joint/gripper `Scalars`) are baked into the base recording during
+  conversion (`forward_all`), not attached as a separate post-registration *layer*.
+  The immutable-raw + replaceable-derived-layer pattern (recompute a bad pass,
+  re-register just that layer via the existing `REPLACE` path) is not demonstrated;
+  there is no named after-the-fact enrichment signal (blur / keyframe / quality
+  verdict); and query results are printed/displayed only, never persisted back to
+  the catalog as *tables* visible in the viewer.
+- **Train** — deferred (observation-only dataset; task/inputs/model undecided):
+  curate-by-query → column-map to a training schema → LeRobot export → training
+  observability. The `[dataloader]` extra is referenced in comments/notes but is
+  **not yet defined** in `pyproject.toml`.
+- **Deploy** — not previously in scope: record eval rollouts as episodes with
+  provenance tags, attach domain metadata (robot / operator / task / model version)
+  at register time for metadata search, and rank outcomes by condition with a
+  failure-triage flow.
+
+See the README roadmap for the checklist form.
+
 ## Out of Scope
 
 - **Training (step 6)** — deferred. The dataloader integration
@@ -267,8 +300,6 @@ stays observation-only and reproducible on a laptop/workstation.
   channel), so any training task is self-supervised or cross-signal.
 - **Cloud paths** — S3 storage, Modal jobs, the hosted catalog, and remote
   dataset re-registration are removed, not ported.
-- **The final Hugging Face dataset** — the real `repo_id`/owner and the dataset
-  upload itself are TBD; a clearly-marked placeholder is used.
 - **Persistent server storage** — the local OSS server is in-memory by design.
 - **The full 1024-episode internal corpus** — the published OSS dataset is capped
   at 100 episodes; the larger internal set is not published or processed here.
@@ -285,8 +316,8 @@ stays observation-only and reproducible on a laptop/workstation.
   query, and re-register after any restart.
 - When training is built, the dataloader requires
   `torch.multiprocessing.set_start_method("spawn", force=True)` because Rerun's
-  runtime is not fork-safe; the `[dataloader]` extra pulls torch/torchvision/av/
-  pillow.
+  runtime is not fork-safe; the `[dataloader]` extra (torch/torchvision/av/pillow)
+  is referenced here but **not yet defined** in `pyproject.toml`.
 - pyrefly's site-package paths resolve only after the dev environment is
   installed, so `pixi install` (dev) precedes the first `typecheck`.
 - Build order for piece-by-piece delivery: (0) toolchain scaffold → (1) data +

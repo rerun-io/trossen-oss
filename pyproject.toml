@@ -20,8 +20,8 @@ packages = ["src/trossen_oss"]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
-# Runtime (default feature) — the local ingest/serve/register/query pipeline.
-# jupyterlab + rerun-notebook are added at the notebook step; torch via the
+# Runtime (default feature) — the local ingest/serve/register/query pipeline plus
+# the analytical notebooks (jupyterlab + rerun-notebook). torch via the
 # [dataloader] extra is added at the training step.
 [tool.pixi.dependencies]
 python = "3.12.*"
@@ -34,14 +34,19 @@ av = ">=15,<16"
 ffmpeg = ">=8.0.0,<9"
 tyro = ">=0.9.1,<0.10"
 tqdm = ">=4.66"
+jupyterlab = "*"
+# rerun-notebook 0.33 caps ipykernel<7; pin it on the conda side so jupyterlab
+# doesn't pull ipykernel 7.x and create a conda/PyPI version conflict.
+ipykernel = "<7"
 
 [tool.pixi.pypi-dependencies]
 trossen_oss = { path = ".", editable = true }
 rerun-sdk = { version = "==0.33.0", extras = ["catalog", "datafusion"] }
+rerun-notebook = "==0.33.0"
 
-# Episode download. PLACEHOLDER repo id — update both tasks once the dataset is
-# published. The OSS dataset publishes 100 episodes max. `download` fetches 10
-# sample episodes (0-9); the guard makes it a no-op when data/ already exists
+# Episode download from the public Hugging Face dataset
+# `pablovela5620/trossen-mjwarp-episodes` (100 episodes max). `download` fetches
+# 10 sample episodes (0-9); the guard makes it a no-op when data/ already exists
 # (e.g. the dev-machine symlink). `download-all` fetches all 100 (0-99).
 [tool.pixi.tasks.download]
 cmd = "test -e data/episode_0_proto.mcap || hf download pablovela5620/trossen-mjwarp-episodes --repo-type dataset --include 'episode_[0-9]_proto.mcap' --local-dir data/"
@@ -70,6 +75,10 @@ description = "Register outputs/ RRDs into the local catalog as a dataset"
 [tool.pixi.tasks.query]
 cmd = "python tools/query.py"
 description = "Run cross-episode queries against the local catalog (needs serve + register)"
+
+[tool.pixi.tasks.notebook]
+cmd = "jupyter lab notebooks"
+description = "Launch JupyterLab on the analytical notebooks (needs serve + register)"
 
 # Dev feature — type-checking, linting, tests. Enables beartype at import time
 # via PIXI_DEV_MODE so default/production runs carry no runtime checking cost.
