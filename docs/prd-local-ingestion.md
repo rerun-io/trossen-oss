@@ -146,9 +146,10 @@ stays observation-only and reproducible on a laptop/workstation.
   dataclasses use pyserde `@serde`.
 
 ### Dependencies
-- Runtime: `rerun-sdk[catalog,datafusion,dataloader]==0.33.0` (from PyPI),
-  `datafusion`, `numpy`, `pyarrow`, `huggingface_hub`, `hf-transfer`,
-  `jupyterlab`, plus video decode support (av/ffmpeg). conda-forge channel.
+- Runtime: `rerun-sdk[catalog,datafusion]==0.33.0` (from PyPI), `numpy`,
+  `pyarrow`, `jaxtyping`, `pyserde`, `huggingface_hub` (Xet transfer; `hf-transfer`
+  was dropped), `tyro`, `tqdm`, plus video decode support (av/ffmpeg).
+  conda-forge channel. `jupyterlab`/`dataloader` are added at the notebook/training steps.
 - Removed relative to the proof-of-concept: `boto3`/S3, `modal`, and the remote
   catalog re-registration path.
 
@@ -158,8 +159,9 @@ stays observation-only and reproducible on a laptop/workstation.
   users an idempotent Hugging Face download task populates the same directory
   (`--local-dir data/`, guarded by an existence check). A placeholder dataset
   `repo_id` is used until the real Hugging Face dataset identity is decided.
-- Episode location is overridable via a `TROSSEN_DATA_ROOT` environment variable
-  and a `--episodes-dir` CLI flag, so nothing is hard-bound to the symlink.
+- Episode location is overridable via the `--data-dir` CLI flag (default `data/`),
+  so nothing is hard-bound to the symlink. Paths are plain `PreprocessingConfig`
+  fields (tyro flags) rather than environment variables.
 - HF-resolved paths must not be canonicalized to the cache blob; the
   extension-bearing path is preserved so Rerun's loader accepts the file.
 - The published OSS dataset is capped at 100 episodes (the internal corpus has
@@ -222,8 +224,9 @@ stays observation-only and reproducible on a laptop/workstation.
   analysis notebook. Each connects via `CatalogClient` and embeds the Rerun
   viewer pointed at the local server. SQL queries register views on the client's
   DataFusion context; DataFrame queries use the dataset's filtered reader.
-- Server URL and dataset name are read from environment variables so the same
-  notebooks work against any catalog URL.
+- Server URL and dataset name are configuration fields with sensible defaults
+  (`CatalogConfig.catalog_url` / `dataset_name`, exposed as `--catalog-url` /
+  `--dataset-name`), so the same notebooks work against any catalog URL.
 
 ### Blueprint
 - The proof-of-concept's default blueprint is ported and registered on the

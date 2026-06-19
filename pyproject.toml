@@ -33,6 +33,7 @@ huggingface_hub = "*"
 av = ">=15,<16"
 ffmpeg = ">=8.0.0,<9"
 tyro = ">=0.9.1,<0.10"
+tqdm = ">=4.66"
 
 [tool.pixi.pypi-dependencies]
 trossen_oss = { path = ".", editable = true }
@@ -65,6 +66,10 @@ description = "Start the local in-memory Rerun data platform (catalog) on :51234
 [tool.pixi.tasks.register]
 cmd = "python tools/register_catalog.py"
 description = "Register outputs/ RRDs into the local catalog as a dataset"
+
+[tool.pixi.tasks.query]
+cmd = "python tools/query.py"
+description = "Run cross-episode queries against the local catalog (needs serve + register)"
 
 # Dev feature — type-checking, linting, tests. Enables beartype at import time
 # via PIXI_DEV_MODE so default/production runs carry no runtime checking cost.

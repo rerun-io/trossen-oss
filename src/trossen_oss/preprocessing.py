@@ -33,6 +33,13 @@ from rerun.experimental import (
     Selector,
 )
 from rerun.urdf import UrdfTree
+from tqdm import tqdm
+
+APPLICATION_ID: str = "rerun_example_robot_data_preprocessing"
+"""Shared application id for every episode recording and the blueprint."""
+
+EPISODE_MCAP_GLOB: str = "episode_*_proto.mcap"
+"""Glob matching source episode MCAP files."""
 
 
 def json_transforms_stream(json_path: Path) -> LazyChunkStream:
@@ -186,6 +193,7 @@ def robot_data_blueprint() -> rrb.Blueprint:
                         "+ /trossen_ai_scene/**",
                     ],
                     spatial_information=rrb.SpatialInformation(target_frame="world"),
+                    eye_controls=rrb.archetypes.EyeControls3D(spin_speed=0.25),
                 ),
                 rrb.Vertical(
                     rrb.Grid(
@@ -242,33 +250,40 @@ class PreprocessingConfig:
     """Optionally limit the number of RRD files to process (for testing)."""
 
 
-def main(cfg: PreprocessingConfig) -> None:
-    """Run the main chunk-processing pipeline for this example."""
-    cfg.output_dir.mkdir(exist_ok=True)
+def _episode_number(episode_mcap: Path) -> int:
+    """Parse the episode number from an ``episode_<n>_proto.mcap`` filename."""
+    digits: str = "".join(ch for ch in episode_mcap.stem if ch.isdigit())
+    return int(digits) if digits else 0
 
-    # Create a chunk stream from the MCAP file.
-    # The reader uses Rerun's MCAP importer (like the viewer or `rerun mcap convert` CLI),
+
+def episode_recording_id(episode_mcap: Path) -> str:
+    """Stable, zero-padded per-episode recording id (= catalog segment id), e.g. ``episode_001``.
+
+    Zero-padding to three digits keeps segment ids sorting numerically (``episode_010``
+    after ``episode_009``) in the catalog and viewer, which order ids lexicographically.
+    """
+    return f"episode_{_episode_number(episode_mcap):03d}"
+
+
+def discover_episode_mcaps(data_dir: Path, limit: int | None = None) -> list[Path]:
+    """Return episode MCAPs sorted by episode number, optionally capped at ``limit`` (None = all)."""
+    episode_mcaps: list[Path] = sorted(data_dir.glob(EPISODE_MCAP_GLOB), key=_episode_number)
+    return episode_mcaps[:limit] if limit is not None else episode_mcaps
+
+
+def build_episode_data_stream(
+    episode_mcap: Path,
+    offsets_json: Path,
+    robot_urdf_left: UrdfTree,
+    robot_urdf_right: UrdfTree,
+) -> LazyChunkStream:
+    """Assemble one episode's base recording: MCAP + offsets + derived FK and signal scalars."""
+    # The reader uses Rerun's MCAP importer (like the viewer or `rerun mcap convert`),
     # so we get Rerun components that we can process in-stream.
-    mcap_stream = McapReader(cfg.data_dir / "episode_0_proto.mcap").stream()
+    mcap_stream: LazyChunkStream = McapReader(episode_mcap).stream()
 
-    # The world-to-base transform offsets of the two robots are stored in a separate JSON file.
-    robot_offsets_stream = json_transforms_stream(cfg.urdf_dir / "offsets.json")
-
-    # Load the same robot URDF twice, with distinct entity path and frame name prefixes for each robot.
-    robot_urdf_left = UrdfTree.from_file_path(
-        cfg.urdf_dir / "robot.urdf",
-        entity_path_prefix="robot_left",
-        frame_prefix="left_",
-        static_transform_entity_path="/tf_static/left_robot",
-    )
-    robot_urdf_right = UrdfTree.from_file_path(
-        cfg.urdf_dir / "robot.urdf",
-        entity_path_prefix="robot_right",
-        frame_prefix="right_",
-        static_transform_entity_path="/tf_static/right_robot",
-    )
-    # Load the scene URDF (table & external cameras).
-    scene_urdf = UrdfTree.from_file_path(cfg.urdf_dir / "scene.urdf", static_transform_entity_path="/tf_static/scene")
+    # The world-to-base transform offsets of the two robots live in a separate JSON file.
+    robot_offsets_stream: LazyChunkStream = json_transforms_stream(offsets_json)
 
     # NB: the upstream robot_data_preprocessing example swaps Pinhole:resolution for
     # cam_high/cam_low because *its* example MCAP has a swapped-resolution bug. This
@@ -284,8 +299,8 @@ def main(cfg: PreprocessingConfig) -> None:
             output_mode="forward_unmatched",
         )
 
-    # For each robot, compute the joint transforms in batches and convert to the final Transform3D chunks.
-    # We keep the original joint states in the stream ("forward_all") while dropping the temporary batch values.
+    # For each robot, compute the joint transforms in batches and convert to Transform3D chunks.
+    # We keep the original joint states in the stream ("forward_all") while dropping temporary batches.
     mcap_stream = (
         mcap_stream.lenses(
             joints_batch_lens(robot_urdf_left), content="/robot_left/joint_states", output_mode="forward_all"
@@ -313,55 +328,94 @@ def main(cfg: PreprocessingConfig) -> None:
         .lenses(gripper_scalar_lenses("robot_right"), content="/robot_right/gripper_status", output_mode="forward_all")
     )
 
-    # We also modify each robot's visual meshes to have custom colors / transparency by mutating the albedo factor.
-    robot_urdf_left_stream = robot_urdf_left.stream().lenses(
-        change_albedo_factor_lens(rr.components.AlbedoFactor([80, 120, 175, 125])),
-        content="/robot_left/wxai/visual_geometries/**",
-        output_mode="forward_unmatched",
+    return LazyChunkStream.merge(mcap_stream, robot_offsets_stream)
+
+
+def build_urdf_stream(
+    robot_urdf_left: UrdfTree,
+    robot_urdf_right: UrdfTree,
+    scene_urdf: UrdfTree,
+) -> LazyChunkStream:
+    """Assemble the URDF model layer (recolored meshes + scene). Identical for every episode."""
+    # Recolor each robot's visual meshes (semi-transparent blue/orange) and drop collision meshes.
+    robot_urdf_left_stream: LazyChunkStream = (
+        robot_urdf_left.stream()
+        .lenses(
+            change_albedo_factor_lens(rr.components.AlbedoFactor([80, 120, 175, 125])),
+            content="/robot_left/wxai/visual_geometries/**",
+            output_mode="forward_unmatched",
+        )
+        .drop(content="/robot_left/wxai/collision_geometries/**")
     )
-    robot_urdf_right_stream = robot_urdf_right.stream().lenses(
-        change_albedo_factor_lens(rr.components.AlbedoFactor([200, 120, 90, 125])),
-        content="/robot_right/wxai/visual_geometries/**",
-        output_mode="forward_unmatched",
+    robot_urdf_right_stream: LazyChunkStream = (
+        robot_urdf_right.stream()
+        .lenses(
+            change_albedo_factor_lens(rr.components.AlbedoFactor([200, 120, 90, 125])),
+            content="/robot_right/wxai/visual_geometries/**",
+            output_mode="forward_unmatched",
+        )
+        .drop(content="/robot_right/wxai/collision_geometries/**")
+    )
+    return LazyChunkStream.merge(robot_urdf_left_stream, robot_urdf_right_stream, scene_urdf.stream())
+
+
+def main(cfg: PreprocessingConfig) -> None:
+    """Convert each episode MCAP into a base + URDF-layer RRD, sharing one blueprint.
+
+    The robot/scene URDF layer and the blueprint do not depend on the episode, so we
+    build them once: the URDF model store is materialized a single time and written
+    per-episode with a matching recording id, and the blueprint is saved once.
+    """
+    rrd_dir: Path = cfg.output_dir / "rrds"
+    rrd_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load the robot URDF twice (mirrored prefixes/colors) and the scene URDF once.
+    robot_urdf_left: UrdfTree = UrdfTree.from_file_path(
+        cfg.urdf_dir / "robot.urdf",
+        entity_path_prefix="robot_left",
+        frame_prefix="left_",
+        static_transform_entity_path="/tf_static/left_robot",
+    )
+    robot_urdf_right: UrdfTree = UrdfTree.from_file_path(
+        cfg.urdf_dir / "robot.urdf",
+        entity_path_prefix="robot_right",
+        frame_prefix="right_",
+        static_transform_entity_path="/tf_static/right_robot",
+    )
+    scene_urdf: UrdfTree = UrdfTree.from_file_path(
+        cfg.urdf_dir / "scene.urdf", static_transform_entity_path="/tf_static/scene"
     )
 
-    # Drop the collision meshes from each URDF.
-    # (you can also disable them in the viewer, but here we demonstrate how to drop them entirely)
-    robot_urdf_left_stream = robot_urdf_left_stream.drop(content="/robot_left/wxai/collision_geometries/**")
-    robot_urdf_right_stream = robot_urdf_right_stream.drop(content="/robot_right/wxai/collision_geometries/**")
-
-    # Merge the streams in logical groups (base recording and URDF data).
-    # (alternatively we could also merge everything in one stream here, if desired)
-    data_stream = LazyChunkStream.merge(
-        mcap_stream,
-        robot_offsets_stream,
-    )
-    urdf_stream = LazyChunkStream.merge(
-        robot_urdf_left_stream,
-        robot_urdf_right_stream,
-        scene_urdf.stream(),
+    # The URDF model layer is identical for every episode: materialize it once and
+    # reuse the store for each episode's URDF RRD (written with that episode's id).
+    urdf_store = build_urdf_stream(robot_urdf_left, robot_urdf_right, scene_urdf).collect(
+        optimize=OptimizationProfile.OBJECT_STORE
     )
 
-    # Run the pipeline, materialize into a ChunkStore and optimize it before writing to an RRD.
-    # Here we use an optimization profile suited for object-store (query & stream applications).
-    data_stream.collect(optimize=OptimizationProfile.OBJECT_STORE).write_rrd(
-        cfg.output_dir / "data.rrd",
-        application_id="rerun_example_robot_data_preprocessing",
-        recording_id="episode",
-    )
-    # Write also the URDF streams to an RRD.
-    # Note how we use the same `recording_id` here to group the two RRD layers into the same logical recording.
-    # https://rerun.io/docs/concepts/logging-and-ingestion/recordings#logical-vs-physical-recordings
-    urdf_stream.collect(optimize=OptimizationProfile.OBJECT_STORE).write_rrd(
-        cfg.output_dir / "urdf.rrd",
-        application_id="rerun_example_robot_data_preprocessing",
-        recording_id="episode",
-    )
-    blueprint = robot_data_blueprint()
-    blueprint.save(
-        "rerun_example_robot_data_preprocessing",
-        cfg.output_dir / "robot_data_preprocessing.rbl",
-    )
+    # The blueprint is application-scoped, so it applies to every episode recording —
+    # build and save it once (and it is registered once as the dataset default).
+    blueprint_path: Path = cfg.output_dir / "robot_data_preprocessing.rbl"
+    robot_data_blueprint().save(APPLICATION_ID, blueprint_path)
 
-    print(f"\nWrote output RRDs to: {cfg.output_dir}")
-    print(f"Wrote blueprint to: {cfg.output_dir / 'robot_data_preprocessing.rbl'}")
+    episode_mcaps: list[Path] = discover_episode_mcaps(cfg.data_dir, cfg.num_rrd_to_process)
+    if not episode_mcaps:
+        raise FileNotFoundError(f"No {EPISODE_MCAP_GLOB} files found in {cfg.data_dir}")
+
+    progress = tqdm(episode_mcaps, desc="Preprocessing episodes", unit="ep")
+    for episode_mcap in progress:
+        recording_id: str = episode_recording_id(episode_mcap)
+        progress.set_postfix_str(recording_id)
+        data_stream: LazyChunkStream = build_episode_data_stream(
+            episode_mcap, cfg.urdf_dir / "offsets.json", robot_urdf_left, robot_urdf_right
+        )
+        data_rrd: Path = rrd_dir / f"{recording_id}_data.rrd"
+        urdf_rrd: Path = rrd_dir / f"{recording_id}_urdf.rrd"
+        data_stream.collect(optimize=OptimizationProfile.OBJECT_STORE).write_rrd(
+            data_rrd, application_id=APPLICATION_ID, recording_id=recording_id
+        )
+        # Same recording_id groups the two RRD layers into one logical recording.
+        # https://rerun.io/docs/concepts/logging-and-ingestion/recordings#logical-vs-physical-recordings
+        urdf_store.write_rrd(urdf_rrd, application_id=APPLICATION_ID, recording_id=recording_id)
+
+    print(f"\nProcessed {len(episode_mcaps)} episode(s) into {rrd_dir}")
+    print(f"Wrote blueprint to: {blueprint_path}")
