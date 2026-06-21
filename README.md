@@ -1,9 +1,9 @@
 # trossen-oss
 
-Local [Rerun](https://rerun.io) **ingest → register → query** pipeline for Trossen
+Local [Rerun](https://rerun.io) **collect → refine → train** pipeline for Trossen
 bimanual robot episodes. Convert MCAP recordings into RRDs, register them into a
-local Rerun data platform, and query/visualize them — entirely on your machine,
-no cloud required.
+local Rerun data platform, and query, visualize, and train on them — entirely on
+your machine, no cloud required.
 
 ![Episode 0 playing in the Rerun viewer](media/episode_0.gif)
 
@@ -16,8 +16,7 @@ no cloud required.
 ## What it does
 
 Runs Rerun's experiment loop — **Collect → Refine → Train → Deploy** — locally.
-Collect and Refine's *register* + *query* work today; the rest is on the
-[roadmap](#roadmap).
+Collect, Refine's *register* + *query*, and a toy **Train** work end-to-end today.
 
 - **Collect** (`src/trossen_oss/preprocessing.py`) — converts each
   `episode_<n>_proto.mcap` into layered RRDs (`episode_<NNN>_{data,urdf}.rrd`)
@@ -29,6 +28,13 @@ Collect and Refine's *register* + *query* work today; the rest is on the
 - **Refine · query** (`src/trossen_oss/query.py` + `notebooks/`) — cross-episode
   DataFusion queries: per-arm joint travel (which arm is scripted vs. task-driven)
   and per-joint velocity-limit violations, headless or in interactive notebooks.
+- **Train** (`src/trossen_oss/train.py`) — a toy *"the training set is a query"*:
+  pick the most-active episodes with `arm_activity`, stream their joint `Scalars`
+  through Rerun's
+  [`RerunIterableDataset`](https://rerun.io/docs/howto/train/dataloader), and fit a
+  tiny MLP that predicts the next joint state. Loss curves are logged back to Rerun
+  and each run is registered as a segment in a `trossen_oss_runs` dataset, so runs
+  sit alongside the episodes in the catalog (CPU, ~1 min).
 
 ## Quickstart
 
@@ -44,6 +50,7 @@ pixi run serve              # local Rerun data platform on :51234  (leave runnin
 pixi run register           # register the RRDs as the `trossen_oss` dataset
 pixi run query              # cross-episode queries (headless)
 pixi run notebook           # interactive analytical notebooks
+pixi run train              # toy next-state training over a catalog query (CPU torch)
 ```
 
 ## Tasks
@@ -56,6 +63,7 @@ pixi run notebook           # interactive analytical notebooks
 | `register` | Register the RRDs as the `trossen_oss` catalog dataset |
 | `query` | Headless cross-episode DataFusion queries |
 | `notebook` | JupyterLab analytical notebooks (welcome / SQL / DataFrame) |
+| `train` | Toy next-state training over a catalog query (CPU torch; needs serve + register) |
 
 Dev tasks live in the `dev` environment: `pixi run -e dev check-all`
 (format-check + `pyrefly` typecheck + `pytest`).
@@ -66,37 +74,6 @@ Episodes come from the public Hugging Face dataset
 [`pablovela5620/trossen-mjwarp-episodes`](https://huggingface.co/datasets/pablovela5620/trossen-mjwarp-episodes)
 — 100 bimanual manipulation episodes (~188 MB each). The robot model (URDF +
 meshes) is vendored under `assets/urdf/`.
-
-## Roadmap
-
-Collect and Refine's *register* + *query* are in place. Remaining work, grouped by
-experiment-loop stage:
-
-### Refine · enrich
-- [ ] Attach derived signals as a separate post-registration **layer** (same
-  `recording_id`, new layer name) instead of baking scalars into the base
-  recording — and show fixing a bad pass by re-registering just that layer
-- [ ] Compute at least one named enrichment signal after the fact (per-frame blur,
-  keyframe, or quality verdict) as a derived layer
-- [ ] Persist query results back to the catalog as **tables** that show up in the
-  viewer, rather than only printing/displaying them
-
-### Train — *deferred (observation-only dataset; task/model TBD)*
-- [ ] Curate a training slice by filtering episodes on a derived quality signal
-  ("the training set is a query")
-- [ ] Map Rerun entity paths to a training schema via explicit column mapping
-  (state / action / camera) with fixed-rate alignment
-- [ ] Export the curated slice to **LeRobot** format
-- [ ] Define the `[dataloader]` torch extra and log loss curves + sample batches as
-  Rerun recordings during training
-
-### Deploy — *not yet in scope*
-- [ ] Record eval rollouts as episodes with provenance tags (checkpoint, scene,
-  version, outcome)
-- [ ] Attach domain metadata (robot / operator / task / model version / tags) at
-  register time so segments are searchable by what matters
-- [ ] Add a success-by-condition group-by over eval outcomes plus a failure-triage
-  flow that opens the underlying recordings
 
 ## More
 

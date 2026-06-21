@@ -1,7 +1,8 @@
 """Query the Trossen catalog: ask questions across every registered episode.
 
-This is the *query* stage of the experiment loop (Collect → Register → Enrich →
-Query). With the episodes registered as catalog segments, we ask cross-dataset
+This is the *query* part of the **Refine** stage of the experiment loop
+(Collect → Refine → Train → Deploy; Refine = register + enrich + query). With the
+episodes registered as catalog segments, we ask cross-dataset
 questions through the ``CatalogClient`` reader + DataFusion — the DataFrame API
 for segment metadata and SQL for per-signal questions — without opening the
 viewer. It mirrors the analysis notebooks but runs headless against the real

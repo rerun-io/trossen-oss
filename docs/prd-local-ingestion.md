@@ -38,7 +38,10 @@ pipeline against a local Rerun OSS catalog server:
 5. **Query** — run DataFusion queries against the local catalog, both from a
    headless smoke script and from interactive notebooks that embed the Rerun
    viewer.
-6. **Train / Deploy** — *(future stages; see Roadmap and Out of Scope.)*
+6. **Train** — a toy "the training set is a query" next-state model: select the
+   most-active episodes via a catalog query, stream their joint `Scalars` through
+   Rerun's PyTorch dataloader, fit a tiny MLP, and register the run to a
+   `trossen_oss_runs` dataset. Deploy remains future.
 
 The cloud-only machinery (S3, Modal, the remote catalog) is removed. The runtime
 stays observation-only and reproducible on a laptop/workstation.
@@ -150,7 +153,8 @@ stays observation-only and reproducible on a laptop/workstation.
   `pyarrow`, `jaxtyping`, `pyserde`, `huggingface_hub` (Xet transfer; `hf-transfer`
   was dropped), `tyro`, `tqdm`, plus video decode support (av/ffmpeg).
   conda-forge channel. The notebook step adds `jupyterlab` (conda-forge) and
-  `rerun-notebook==0.33.0` (PyPI); `dataloader` (torch) is added at the training step.
+  `rerun-notebook==0.33.0` (PyPI). The training step adds the `dataloader` feature
+  (CPU `pytorch` / `torchvision` / `pillow`, conda-forge) as its own environment.
 - Removed relative to the proof-of-concept: `boto3`/S3, `modal`, and the remote
   catalog re-registration path.
 
@@ -266,11 +270,11 @@ stays observation-only and reproducible on a laptop/workstation.
   seam) skip gracefully when the data mount/episode is unavailable, so the suite
   is runnable without the internal data.
 
-## Roadmap (gaps vs. the Rerun experiment loop)
+## Roadmap (status vs. the Rerun experiment loop)
 
 The reference course frames the loop as **Collect → Refine → Train → Deploy**
 (Refine = register + enrich + query). A triple-checked audit against that course
-found Collect and Refine's *register* + *query* complete, with these gaps:
+found Collect and Refine's *register* + *query* complete. The rest of the loop:
 
 - **Refine · enrich** (partial — the one in-scope surprise): derived signals (FK
   `/tf`, per-joint/gripper `Scalars`) are baked into the base recording during
@@ -280,30 +284,31 @@ found Collect and Refine's *register* + *query* complete, with these gaps:
   there is no named after-the-fact enrichment signal (blur / keyframe / quality
   verdict); and query results are printed/displayed only, never persisted back to
   the catalog as *tables* visible in the viewer.
-- **Train** — deferred (observation-only dataset; task/inputs/model undecided):
-  curate-by-query → column-map to a training schema → LeRobot export → training
-  observability. The `[dataloader]` extra is referenced in comments/notes but is
-  **not yet defined** in `pyproject.toml`.
+- **Train** — a toy example is **implemented** (`src/trossen_oss/train.py`,
+  `pixi run train`): `select_segments` curates the most-active episodes by query,
+  `RerunIterableDataset` streams their joint `Scalars`, and a tiny MLP fits the
+  next joint state (val loss ~0.91 → ~0.002). The loss is logged back to Rerun and
+  the run is registered as a segment in a `trossen_oss_runs` dataset (one segment
+  per run, with a loss-curve blueprint), so runs sit alongside the episodes in the
+  catalog. The `[dataloader]` feature (CPU torch) now exists. Still future: a
+  LeRobot export, video/image inputs, and a real model/task.
 - **Deploy** — not previously in scope: record eval rollouts as episodes with
   provenance tags, attach domain metadata (robot / operator / task / model version)
   at register time for metadata search, and rank outcomes by condition with a
   failure-triage flow.
 
-See the README roadmap for the checklist form.
-
 ## Out of Scope
 
-- **Training (step 6)** — deferred. The dataloader integration
-  (`rerun.experimental.dataloader`, torch) is understood but the task formulation
-  (cross-arm vs next-state vs other), inputs (scalars vs video), and model are
-  not yet decided. This dataset is observation-only (no commanded action
-  channel), so any training task is self-supervised or cross-signal.
+- **Serious training (beyond the toy)** — the toy next-state example exists
+  (`src/trossen_oss/train.py`); a real model, a LeRobot export, and video/image
+  inputs are out of scope. This dataset is observation-only (no commanded action
+  channel), so the toy task is self-supervised (next-state prediction).
 - **Cloud paths** — S3 storage, Modal jobs, the hosted catalog, and remote
   dataset re-registration are removed, not ported.
 - **Persistent server storage** — the local OSS server is in-memory by design.
 - **The full 1024-episode internal corpus** — the published OSS dataset is capped
   at 100 episodes; the larger internal set is not published or processed here.
-- **Model quality** — when training lands, the bar is proving the
+- **Model quality** — the toy trainer's bar is proving the
   register→dataloader→train loop, not accuracy.
 
 ## Further Notes
@@ -314,13 +319,15 @@ See the README roadmap for the checklist form.
   unchanged), so budget ~35–40 GB on disk for source + RRDs at the full 100.
 - In-memory server implies a predictable workflow: start server → register →
   query, and re-register after any restart.
-- When training is built, the dataloader requires
-  `torch.multiprocessing.set_start_method("spawn", force=True)` because Rerun's
-  runtime is not fork-safe; the `[dataloader]` extra (torch/torchvision/av/pillow)
-  is referenced here but **not yet defined** in `pyproject.toml`.
+- The toy trainer uses `num_workers=0`, sidestepping the dataloader's fork-safety
+  requirement; multi-worker training would need
+  `torch.multiprocessing.set_start_method("spawn", force=True)` (Rerun's runtime is
+  not fork-safe). The `[dataloader]` feature (CPU torch / torchvision / pillow) is
+  defined as its own pixi environment, isolated from the default pipeline.
 - pyrefly's site-package paths resolve only after the dev environment is
   installed, so `pixi install` (dev) precedes the first `typecheck`.
 - Build order for piece-by-piece delivery: (0) toolchain scaffold → (1) data +
   vendored assets + download task → (2) conversion + conversion/planning tests →
   (3) server + register + round-trip test (resolve R1) → (4) query smoke +
-  notebooks + blueprint → (5) scale to ~100 episodes → (6) training (TBD).
+  notebooks + blueprint → (5) scale to ~100 episodes → (6) toy training + run
+  registration.

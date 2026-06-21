@@ -14,6 +14,10 @@ search-path = ["src"]
 site-package-path = [
     ".pixi/envs/dev/lib/python3.12/site-packages",
     ".pixi/envs/dev/lib/python3.12/site-packages/rerun_sdk",
+    # torch / torchvision for src/trossen_oss/train.py live only in the dataloader
+    # environment (the Train step), so resolve them from there. Listed last so the
+    # dev env wins for every package both environments share.
+    ".pixi/envs/dataloader/lib/python3.12/site-packages",
 ]
 
 python-interpreter-path = ".pixi/envs/dev/bin/python"
