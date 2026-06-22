@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import pyarrow as pa
 from datafusion import col
-from rerun.catalog import CatalogClient, DatasetEntry
+from rerun.catalog import CatalogClient, DatasetEntry, TableEntry
 
 from trossen_oss.catalog import DEFAULT_CATALOG_URL
 
@@ -68,7 +68,7 @@ def arm_activity(client: CatalogClient, dataset: DatasetEntry) -> pa.Table:
                {right_sum} AS right_motion
         FROM arms
         GROUP BY rerun_segment_id
-        ORDER BY right_motion DESC
+        ORDER BY right_motion DESC, rerun_segment_id
         """
     ).to_arrow_table()
 
@@ -109,6 +109,21 @@ def velocity_limit_violations(
     ).to_arrow_table()
 
 
+def persist_table(client: CatalogClient, name: str, table: pa.Table) -> str:
+    """Persist a query result as a catalog Table entry (overwrite if it already exists).
+
+    The Refine step ends by making analysis *part of the data layer*: the derived table
+    sits in the catalog alongside the dataset, queryable like any other entry and
+    readable back with ``client.get_table(name).reader()`` — not stranded in stdout or a
+    notebook. ``overwrite`` wants record batches, so we de-chunk the Arrow table first.
+    """
+    entry: TableEntry = (
+        client.get_table(name) if name in client.table_names() else client.create_table(name, table.schema)
+    )
+    entry.overwrite(table.combine_chunks().to_batches())
+    return name
+
+
 @dataclass
 class QueryConfig:
     """Configuration for the headless catalog query demo."""
@@ -119,6 +134,8 @@ class QueryConfig:
     """Catalog dataset to query."""
     joint: str = "/robot_right/joints/joint_1"
     """Joint entity path for the velocity-limit query (defaults to the active right arm)."""
+    persist_tables: bool = True
+    """Persist the query results as catalog Table entries so analysis joins the data layer."""
 
 
 def main(cfg: QueryConfig) -> None:
@@ -151,3 +168,9 @@ def main(cfg: QueryConfig) -> None:
         print(
             f"    {row['rerun_segment_id']}: {row['violations']} samples over limit, peak {row['peak_velocity']:.2f} rad/s"
         )
+
+    if cfg.persist_tables:
+        activity_table: str = persist_table(client, f"{cfg.dataset_name}_arm_activity", activity)
+        violations_table: str = persist_table(client, f"{cfg.dataset_name}_velocity_violations", violations)
+        print(f"\npersisted results as catalog tables: '{activity_table}', '{violations_table}'")
+        print(f"  read one back with: client.get_table('{violations_table}').reader()  — or browse it in the viewer")

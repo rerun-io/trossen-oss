@@ -37,11 +37,15 @@ pipeline against a local Rerun OSS catalog server:
    keeping the base recording and the URDF layer as a single layered segment.
 5. **Query** — run DataFusion queries against the local catalog, both from a
    headless smoke script and from interactive notebooks that embed the Rerun
-   viewer.
-6. **Train** — a toy "the training set is a query" next-state model: select the
-   most-active episodes via a catalog query, stream their joint `Scalars` through
-   Rerun's PyTorch dataloader, fit a tiny MLP, and register the run to a
-   `trossen_oss_runs` dataset. Deploy remains future.
+   viewer, and persist the results back as catalog *tables*.
+6. **Enrich** — derive a per-episode quality verdict from a catalog query and
+   re-register it as a new `quality` layer on each segment, leaving the raw
+   recordings untouched.
+7. **Train** — a toy "the training set is a query" next-state model: select the
+   most-active episodes via a catalog query, **stream** their joint `Scalars`
+   directly from the catalog through Rerun's PyTorch dataloader (wrapped in a
+   `DataLoader`), fit a tiny MLP, and register the run to a `trossen_oss_runs`
+   dataset. Deploy remains future.
 
 The cloud-only machinery (S3, Modal, the remote catalog) is removed. The runtime
 stays observation-only and reproducible on a laptop/workstation.
@@ -184,25 +188,27 @@ stays observation-only and reproducible on a laptop/workstation.
   so the layer attaches to the base segment. Streams are collected with the
   object-store optimization profile before writing.
 - The base recording's data contract (Rerun entities/components):
-  - `/world` — root transform bridging the named world frame to the viewer root
-    (child frame only, no parent).
-  - `/transforms_static` — world→arm-base offsets (static).
-  - `/{arm}/joints/{joint_name}` — per-joint scalar series on a `timestamp`
-    timeline (one entity per joint; 8 joints per arm, both arms).
-  - `/{arm}/gripper/{position,current,claw_state}` — gripper scalar/enum signals.
+  - `/tf` — per-link forward-kinematics transforms derived from the joint states
+    through the URDF (temporal).
+  - `/tf_static/robot_offsets` — the world→base offsets for the two robots loaded
+    from `offsets.json` (static); `/tf_static/{left_robot,right_robot,scene}` carry
+    each URDF's static base transform.
+  - `/{arm}/joints/{joint_name}` — per-joint scalar series on the `message_log_time`
+    timeline (one entity per non-fixed joint, both arms).
+  - `/{arm}/gripper/{position,current}` — gripper position/current scalar signals.
   - camera entities (high/low external + per-wrist) carry a static pinhole
-    (intrinsics + resolution); a child `/video` entity carries an identity
-    transform plus an H.264 video stream.
-  - `/task_description` — the per-episode language instruction as text, also
-    surfaced on the recording properties.
-- Two MCAP readers are used deliberately: a foxglove+protobuf reader for the
-  forward-kinematics transforms, and a protobuf-only reader for signals and
-  video (the foxglove decoder otherwise drops compressed video). Constant URDF
-  bookkeeping transform rows (visual/collision/inertial prefixes) are thinned out.
+    (intrinsics + resolution); the camera video is re-homed onto the Pinhole's
+    image-plane frame so it renders in the 2D camera view.
+- A single `McapReader` stream feeds the conversion; in-stream lenses then derive
+  the FK `/tf` transforms (URDF joint-transform batches scattered per link), split
+  per-joint/gripper `Scalars`, and fix a recorded error by re-homing each camera
+  video onto its Pinhole image-plane frame. (The upstream example also swaps a
+  known camera-resolution bug; this dataset's calibration is already correct, so
+  that swap is intentionally skipped.)
 - The URDF layer adds arm link meshes (driven by the base recording's temporal
-  transforms, not static rest-pose edges) and the static scene (table, cell
-  frame, fixed external camera poses); collision geometries are dropped. The
-  layer verifies every frame reaches the world root before emitting.
+  transforms, not static rest-pose edges) and the static scene (table, cell frame,
+  fixed external camera poses); robot **and** scene collision geometries are dropped
+  so only visual meshes reach the 3D view.
 
 ### Local server, registration, and dataset identity
 - Step 3 and step 4 are separate. A long-lived local Rerun OSS catalog server is
@@ -274,24 +280,28 @@ stays observation-only and reproducible on a laptop/workstation.
 
 The reference course frames the loop as **Collect → Refine → Train → Deploy**
 (Refine = register + enrich + query). A triple-checked audit against that course
-found Collect and Refine's *register* + *query* complete. The rest of the loop:
+found Collect and all of Refine (register + enrich + query) complete, plus a toy
+Train. The remaining stage is Deploy:
 
-- **Refine · enrich** (partial — the one in-scope surprise): derived signals (FK
-  `/tf`, per-joint/gripper `Scalars`) are baked into the base recording during
-  conversion (`forward_all`), not attached as a separate post-registration *layer*.
-  The immutable-raw + replaceable-derived-layer pattern (recompute a bad pass,
-  re-register just that layer via the existing `REPLACE` path) is not demonstrated;
-  there is no named after-the-fact enrichment signal (blur / keyframe / quality
-  verdict); and query results are printed/displayed only, never persisted back to
-  the catalog as *tables* visible in the viewer.
+- **Refine · enrich** — implemented (`src/trossen_oss/enrich.py`, `pixi run enrich`):
+  after registration, a per-episode motion-*quality* verdict is derived from the
+  arm-activity query and re-registered as a new `quality` layer on each segment via
+  the existing `REPLACE` path — the immutable-raw + replaceable-derived-layer pattern,
+  with the raw recordings untouched and low-motion episodes flagged for curation.
+  (FK `/tf` and per-joint/gripper `Scalars` are still baked into the base recording
+  at conversion time, mirroring the upstream example.) Query results are also
+  persisted back to the catalog as *table* entries (`{dataset}_arm_activity`,
+  `{dataset}_velocity_violations`), readable with `client.get_table(name).reader()`
+  and visible in the viewer.
 - **Train** — a toy example is **implemented** (`src/trossen_oss/train.py`,
-  `pixi run train`): `select_segments` curates the most-active episodes by query,
-  `RerunIterableDataset` streams their joint `Scalars`, and a tiny MLP fits the
-  next joint state (val loss ~0.91 → ~0.002). The loss is logged back to Rerun and
-  the run is registered as a segment in a `trossen_oss_runs` dataset (one segment
-  per run, with a loss-curve blueprint), so runs sit alongside the episodes in the
-  catalog. The `[dataloader]` feature (CPU torch) now exists. Still future: a
-  LeRobot export, video/image inputs, and a real model/task.
+  `pixi run train`): `select_segments` curates the most-active episodes by query, and
+  a `RerunIterableDataset` wrapped directly in a PyTorch `DataLoader` **streams** their
+  joint `Scalars` from the catalog each epoch (`set_epoch` reshuffles; nothing is
+  drained into memory), fitting a tiny MLP to the next joint state (val loss
+  ~0.91 → ~0.001). The loss is logged back to Rerun and the run is registered as a
+  segment in a `trossen_oss_runs` dataset (one per run, with a loss-curve blueprint).
+  The `[dataloader]` feature (CPU torch) provides the env. Still future: a LeRobot
+  export, video/image inputs, and a real model/task.
 - **Deploy** — not previously in scope: record eval rollouts as episodes with
   provenance tags, attach domain metadata (robot / operator / task / model version)
   at register time for metadata search, and rank outcomes by condition with a
@@ -319,11 +329,14 @@ found Collect and Refine's *register* + *query* complete. The rest of the loop:
   unchanged), so budget ~35–40 GB on disk for source + RRDs at the full 100.
 - In-memory server implies a predictable workflow: start server → register →
   query, and re-register after any restart.
-- The toy trainer uses `num_workers=0`, sidestepping the dataloader's fork-safety
-  requirement; multi-worker training would need
-  `torch.multiprocessing.set_start_method("spawn", force=True)` (Rerun's runtime is
-  not fork-safe). The `[dataloader]` feature (CPU torch / torchvision / pillow) is
-  defined as its own pixi environment, isolated from the default pipeline.
+- The toy trainer defaults to `num_workers=0`, but `main` calls
+  `torch.multiprocessing.set_start_method("spawn", force=True)` so that passing
+  `--num-workers N` prefetches safely — Rerun's runtime is not fork-safe, so forked
+  DataLoader workers would deadlock on their first catalog call. The `[dataloader]`
+  feature (CPU torch / torchvision / pillow, plus pytest for the Train tests) is its
+  own pixi environment, isolated from the default pipeline. Unit tests currently cover
+  the planning/discovery helpers (dev env) and the trainer's pure-tensor logic
+  (`dataloader` env); the conversion and catalog round-trip seams remain future.
 - pyrefly's site-package paths resolve only after the dev environment is
   installed, so `pixi install` (dev) precedes the first `typecheck`.
 - Build order for piece-by-piece delivery: (0) toolchain scaffold → (1) data +

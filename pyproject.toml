@@ -59,9 +59,10 @@ cmd = "hf download pablovela5620/trossen-mjwarp-episodes --repo-type dataset --i
 description = "Download all 100 episode MCAPs from the Hugging Face Hub into data/"
 
 # Local ingestion -> catalog pipeline.
-# `preprocess` converts an MCAP episode into outputs/{data,urdf}.rrd + blueprint;
-# `serve` runs the in-memory OSS data platform; `register` registers the RRDs as
-# a catalog dataset (run `serve` in another shell first).
+# `preprocess` converts each MCAP episode into outputs/rrds/episode_NNN_{data,urdf}.rrd
+# plus a shared blueprint; `serve` runs the in-memory OSS data platform; `register`
+# registers the RRDs as a catalog dataset; `enrich` attaches a derived quality layer
+# (run `serve` in another shell first).
 [tool.pixi.tasks.preprocess]
 cmd = "python tools/preprocess.py"
 description = "Convert episode MCAP into RRDs + blueprint under outputs/"
@@ -73,6 +74,10 @@ description = "Start the local in-memory Rerun data platform (catalog) on :51234
 [tool.pixi.tasks.register]
 cmd = "python tools/register_catalog.py"
 description = "Register outputs/ RRDs into the local catalog as a dataset"
+
+[tool.pixi.tasks.enrich]
+cmd = "python tools/enrich.py"
+description = "Attach a derived quality layer to the registered episodes (needs serve + register)"
 
 [tool.pixi.tasks.query]
 cmd = "python tools/query.py"
@@ -121,10 +126,17 @@ description = "Run format-check, typecheck, and tests"
 pytorch = { version = ">=2.2", build = "cpu*" }
 torchvision = { version = "*", build = "cpu*" }
 pillow = "*"
+# pytest here too so the torch-dependent Train tests (skipped in the torch-free dev env)
+# can actually run: `pixi run -e dataloader test`.
+pytest = ">=8.0.0,<9"
 
 [tool.pixi.feature.dataloader.tasks.train]
 cmd = "python tools/train.py"
 description = "Toy next-state training over a catalog query; registers the run to trossen_oss_runs (needs serve + register)"
+
+[tool.pixi.feature.dataloader.tasks.test]
+cmd = "pytest"
+description = "Run the test suite in the torch env (covers the Train tests the dev env skips)"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }

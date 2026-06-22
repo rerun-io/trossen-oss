@@ -1,13 +1,23 @@
 """Toy "the training set is a query" example — a next-state model over a catalog query.
 
 The Train stage of the experiment loop. We pick the training / holdout episodes
-with a catalog query (rank by right-arm motion via :func:`arm_activity`), stream
-their per-joint ``Scalars`` through Rerun's experimental PyTorch dataloader
-(:class:`RerunIterableDataset`), and fit a tiny MLP that predicts the right arm's
-next joint vector from the current one. The training run is logged back to Rerun
-and registered as a segment in a ``trossen_oss_runs`` catalog dataset, so runs are
-browsable alongside the episodes. Toy by design — the goal is to exercise the
-register -> query -> dataloader -> train loop, not accuracy.
+with a catalog query (rank by right-arm motion via :func:`arm_activity`), then
+**stream** their per-joint ``Scalars`` straight out of the catalog through Rerun's
+experimental PyTorch dataloader (:class:`RerunIterableDataset`) and fit a tiny MLP
+that predicts the right arm's next joint vector from the current one. The training
+run is logged back to Rerun and registered as a segment in a ``trossen_oss_runs``
+catalog dataset, so runs are browsable alongside the episodes. Toy by design — the
+goal is to exercise the register -> query -> dataloader -> train loop, not accuracy.
+
+The dataloader usage mirrors Rerun's upstream example and how-to:
+- https://rerun.io/docs/howto/train/dataloader
+- https://github.com/rerun-io/rerun/tree/main/examples/python/dataloader
+
+As there, the Rerun dataset is wrapped directly in a PyTorch ``DataLoader`` (a
+:class:`NextStateCollate` assembles batches and drops short windows), shuffling is
+driven by ``set_epoch`` for the iterable dataset (or the sampler for the map one),
+and ``num_workers`` / ``fetch_size`` prefetch from the server — nothing is drained
+into memory up front.
 
 Needs a running catalog (``pixi run serve``) with the dataset registered
 (``pixi run register``).
@@ -18,10 +28,12 @@ from __future__ import annotations
 import datetime
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import rerun as rr
 import rerun.blueprint as rrb
 import torch
+import torch.multiprocessing as torch_mp
 from jaxtyping import Float
 from rerun.catalog import CatalogClient, DatasetEntry, OnDuplicateSegmentLayer
 from rerun.experimental.dataloader import (
@@ -30,9 +42,10 @@ from rerun.experimental.dataloader import (
     FixedRateSampling,
     NumericDecoder,
     RerunIterableDataset,
+    RerunMapDataset,
 )
 from torch import Tensor, nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 
 from trossen_oss.catalog import DEFAULT_CATALOG_URL
 from trossen_oss.query import arm_activity
@@ -43,6 +56,11 @@ TIMELINE: str = "message_log_time"
 """Index timeline used for fixed-rate sampling."""
 NUM_JOINTS: int = len(RIGHT_JOINTS)
 """State / prediction dimensionality (one scalar per right-arm joint)."""
+
+type RerunDataset = RerunIterableDataset | RerunMapDataset
+"""Either Rerun dataloader dataset flavour — iterable (streaming) or map (random-access)."""
+type StateBatch = tuple[Float[Tensor, "b 6"], Float[Tensor, "b 6"]]
+"""A collated ``(state, next_state)`` mini-batch."""
 
 
 def select_segments(
@@ -68,12 +86,27 @@ def select_segments(
     return chosen[:num_train], chosen[num_train : num_train + num_val]
 
 
-def build_dataset(dataset: DatasetEntry, segments: list[str], rate_hz: float) -> RerunIterableDataset:
+def build_dataset(
+    dataset: DatasetEntry,
+    segments: list[str],
+    rate_hz: float,
+    style: Literal["iterable", "map"] = "iterable",
+    fetch_size: int = 256,
+) -> RerunDataset:
     """Build a next-state dataset over ``segments``: one ``(now, next)`` pair per joint.
 
     Each joint field uses a one-period window ``(0, period_ns)`` so a sample carries
-    ``[q_t, q_{t+1/rate}]`` for that joint; :func:`materialize` splits the pair into
-    the current state and the prediction target.
+    ``[q_t, q_{t+1/rate}]`` for that joint (the window offsets are in nanoseconds on the
+    timestamp timeline). :class:`NextStateCollate` splits each pair into the current
+    state and the prediction target and drops the short windows at segment starts.
+
+    Args:
+        dataset: The registered dataset to stream from.
+        segments: Segment ids selected by the query.
+        rate_hz: Fixed sampling rate applied to the 1 kHz signal.
+        style: ``"iterable"`` (:class:`RerunIterableDataset`, internal shuffling) or
+            ``"map"`` (:class:`RerunMapDataset`, random access via DataLoader samplers).
+        fetch_size: Samples fetched per server query (iterable dataset only).
     """
     period_ns: int = round(1e9 / rate_hz)
     fields: dict[str, Field] = {
@@ -81,31 +114,58 @@ def build_dataset(dataset: DatasetEntry, segments: list[str], rate_hz: float) ->
         for joint in RIGHT_JOINTS
     }
     source: DataSource = DataSource(dataset=dataset, segments=segments)
+    sampling: FixedRateSampling = FixedRateSampling(rate_hz=rate_hz)
+    if style == "map":
+        return RerunMapDataset(source=source, index=TIMELINE, fields=fields, timeline_sampling=sampling)
     return RerunIterableDataset(
-        source,
-        index=TIMELINE,
-        fields=fields,
-        timeline_sampling=FixedRateSampling(rate_hz=rate_hz),
+        source=source, index=TIMELINE, fields=fields, timeline_sampling=sampling, fetch_size=fetch_size
     )
 
 
-def materialize(dataset: RerunIterableDataset) -> tuple[Float[Tensor, "n 6"], Float[Tensor, "n 6"]]:
-    """Stream the whole query once into ``(state, next_state)`` tensors.
+class NextStateCollate:
+    """Picklable collate that assembles ``(state, next_state)`` batches from streamed windows.
 
-    Reads the catalog a single time (then we train in-memory). Drops samples at
-    segment boundaries where a joint window is short — the first grid point of a
-    segment has no value at-or-before it — per the dataloader's contract that
-    consumers filter incomplete samples before stacking.
+    Each joint :class:`Field` carries a one-period window ``[q_t, q_{t+1}]``; we drop
+    samples whose window is short — the first grid point of a segment has no value
+    at-or-before it, which the dataloader contract leaves to the consumer to filter —
+    and stack the present / next halves into ``(B, 6)`` tensors. A plain class (not a
+    closure) so it pickles cleanly across ``DataLoader`` worker processes.
     """
-    states: list[Tensor] = []
-    next_states: list[Tensor] = []
-    for sample in dataset:
-        pairs: list[Tensor | None] = [sample[joint] for joint in RIGHT_JOINTS]
-        if any(pair is None or pair.numel() != 2 for pair in pairs):
+
+    def __call__(self, samples: list[dict[str, Tensor | None]]) -> StateBatch:
+        states: list[Tensor] = []
+        next_states: list[Tensor] = []
+        for sample in samples:
+            pairs: list[Tensor | None] = [sample[joint] for joint in RIGHT_JOINTS]
+            if any(pair is None or pair.numel() != 2 for pair in pairs):
+                continue
+            states.append(torch.stack([pair[0] for pair in pairs]))  # type: ignore[index]
+            next_states.append(torch.stack([pair[1] for pair in pairs]))  # type: ignore[index]
+        if not states:
+            empty: Float[Tensor, "0 6"] = torch.empty(0, NUM_JOINTS)
+            return empty, empty
+        return torch.stack(states).float(), torch.stack(next_states).float()
+
+
+def compute_stats(loader: DataLoader) -> tuple[Float[Tensor, "6"], Float[Tensor, "6"], int]:
+    """Stream one pass over ``loader`` to get per-joint ``(mean, std, sample_count)``.
+
+    A single streaming pass — like LeRobot precomputing dataset statistics — so state
+    and next-state can be standardized into unit-variance space before the MSE.
+    """
+    total: Float[Tensor, "6"] = torch.zeros(NUM_JOINTS)
+    total_sq: Float[Tensor, "6"] = torch.zeros(NUM_JOINTS)
+    count: int = 0
+    for state, _ in loader:
+        if state.shape[0] == 0:
             continue
-        states.append(torch.stack([pair[0] for pair in pairs]))  # type: ignore[index]
-        next_states.append(torch.stack([pair[1] for pair in pairs]))  # type: ignore[index]
-    return torch.stack(states).float(), torch.stack(next_states).float()
+        total += state.sum(dim=0)
+        total_sq += (state * state).sum(dim=0)
+        count += state.shape[0]
+    mean: Float[Tensor, "6"] = total / max(count, 1)
+    variance: Float[Tensor, "6"] = (total_sq / max(count, 1)) - mean * mean
+    std: Float[Tensor, "6"] = variance.clamp_min(1e-12).sqrt().clamp_min(1e-6)
+    return mean, std, count
 
 
 class NextStatePolicy(nn.Module):
@@ -134,10 +194,11 @@ def run_epoch(
     loss_fn: nn.Module,
     optimizer: torch.optim.Optimizer | None,
 ) -> float:
-    """Run one pass over ``loader``; train when ``optimizer`` is given, else evaluate. Returns mean loss.
+    """Run one streamed pass over ``loader``; train when ``optimizer`` is given, else evaluate.
 
     State and next-state are standardized with the shared per-joint ``mean`` / ``std``
-    (they follow the same distribution), so the MSE is in unit-variance space.
+    (they follow the same distribution), so the MSE is in unit-variance space. Empty
+    batches (every sample filtered as a short window) are skipped. Returns mean loss.
     """
     training: bool = optimizer is not None
     policy.train(training)
@@ -145,6 +206,8 @@ def run_epoch(
     sample_count: int = 0
     with torch.set_grad_enabled(training):
         for state, target in loader:
+            if state.shape[0] == 0:
+                continue
             state_norm: Float[Tensor, "b 6"] = (state - mean) / std
             target_norm: Float[Tensor, "b 6"] = (target - mean) / std
             prediction: Float[Tensor, "b 6"] = policy(state_norm)
@@ -156,6 +219,24 @@ def run_epoch(
             loss_sum += loss.item() * state.shape[0]
             sample_count += state.shape[0]
     return loss_sum / max(sample_count, 1)
+
+
+def make_loader(dataset: RerunDataset, batch_size: int, num_workers: int) -> DataLoader:
+    """Wrap a Rerun dataset directly in a PyTorch ``DataLoader`` (the upstream idiom).
+
+    Shuffling is the map dataset's sampler or — for the iterable dataset — internal,
+    reseeded per epoch via :meth:`set_epoch`. Workers prefetch from the server.
+    """
+    loader_kwargs: dict[str, object] = {
+        "batch_size": batch_size,
+        "collate_fn": NextStateCollate(),
+        "num_workers": num_workers,
+        "shuffle": isinstance(dataset, RerunMapDataset),
+    }
+    if num_workers > 0:
+        loader_kwargs["persistent_workers"] = True
+        loader_kwargs["prefetch_factor"] = 4
+    return DataLoader(dataset, **loader_kwargs)  # type: ignore[arg-type]
 
 
 def runs_blueprint() -> rrb.Blueprint:
@@ -205,10 +286,21 @@ class TrainConfig:
     """Number of held-out episodes used for validation."""
     rate_hz: float = 10.0
     """Fixed sampling rate (downsamples the 1 kHz signal so a step is meaningful)."""
-    epochs: int = 15
-    """Number of training epochs."""
+    dataset_style: Literal["iterable", "map"] = "iterable"
+    """Rerun dataset flavour: ``iterable`` (streaming) or ``map`` (random access)."""
+    epochs: int = 10
+    """Number of training epochs (the toy loss is essentially converged well before this)."""
     batch_size: int = 256
     """Mini-batch size."""
+    num_workers: int = 0
+    """DataLoader worker processes that prefetch from the catalog (0 = main process).
+
+    The Rerun dataloader requires the ``spawn`` start method for workers (forked
+    workers deadlock on their first catalog call); :func:`main` sets it, so any
+    value > 0 prefetches safely. Defaults to 0 for a snappy, dependency-light run.
+    """
+    fetch_size: int = 256
+    """Samples fetched per server query (iterable dataset only)."""
     hidden: int = 64
     """Hidden width of the MLP."""
     learning_rate: float = 1e-3
@@ -222,7 +314,12 @@ class TrainConfig:
 
 
 def main(cfg: TrainConfig) -> None:
-    """Curate a dataset by query, train the toy next-state policy, and log the run to Rerun."""
+    """Curate a dataset by query, stream-train the toy next-state policy, and log the run to Rerun."""
+    # The Rerun dataloader needs 'spawn' for DataLoader workers (forked workers deadlock on
+    # their first catalog call). Set it before any dataset is built so num_workers > 0 is safe
+    # and the construction-time warning stays quiet; harmless when num_workers == 0.
+    torch_mp.set_start_method("spawn", force=True)
+
     client: CatalogClient = CatalogClient(cfg.catalog_url)
     dataset: DatasetEntry = client.get_dataset(cfg.dataset_name)
 
@@ -233,21 +330,17 @@ def main(cfg: TrainConfig) -> None:
     print(f"  train: {train_segments}")
     print(f"  val  : {val_segments}")
 
-    train_states: Float[Tensor, "n 6"]
-    train_next: Float[Tensor, "n 6"]
-    train_states, train_next = materialize(build_dataset(dataset, train_segments, cfg.rate_hz))
-    val_states: Float[Tensor, "m 6"]
-    val_next: Float[Tensor, "m 6"]
-    val_states, val_next = materialize(build_dataset(dataset, val_segments, cfg.rate_hz))
-    print(f"materialized {train_states.shape[0]} train / {val_states.shape[0]} val transitions from the catalog")
+    train_ds: RerunDataset = build_dataset(dataset, train_segments, cfg.rate_hz, cfg.dataset_style, cfg.fetch_size)
+    val_ds: RerunDataset = build_dataset(dataset, val_segments, cfg.rate_hz, cfg.dataset_style, cfg.fetch_size)
+    train_loader: DataLoader = make_loader(train_ds, cfg.batch_size, cfg.num_workers)
+    val_loader: DataLoader = make_loader(val_ds, cfg.batch_size, cfg.num_workers)
+    print(f"streaming a {cfg.dataset_style} dataset from the catalog ({len(train_ds)} train samples before trimming)")
 
-    mean: Float[Tensor, "6"] = train_states.mean(dim=0)
-    std: Float[Tensor, "6"] = train_states.std(dim=0).clamp_min(1e-6)
-
-    train_loader: DataLoader = DataLoader(
-        TensorDataset(train_states, train_next), batch_size=cfg.batch_size, shuffle=True
-    )
-    val_loader: DataLoader = DataLoader(TensorDataset(val_states, val_next), batch_size=cfg.batch_size)
+    mean: Float[Tensor, "6"]
+    std: Float[Tensor, "6"]
+    train_count: int
+    mean, std, train_count = compute_stats(train_loader)
+    print(f"computed per-joint stats over {train_count} streamed train transitions")
 
     policy: NextStatePolicy = NextStatePolicy(hidden=cfg.hidden)
     optimizer: torch.optim.Optimizer = torch.optim.Adam(policy.parameters(), lr=cfg.learning_rate)
@@ -264,8 +357,8 @@ def main(cfg: TrainConfig) -> None:
             f"run_id: {run_id}\n"
             f"train segments: {train_segments}\n"
             f"val segments: {val_segments}\n"
-            f"rate_hz={cfg.rate_hz} epochs={cfg.epochs} batch_size={cfg.batch_size} "
-            f"hidden={cfg.hidden} lr={cfg.learning_rate}"
+            f"dataset_style={cfg.dataset_style} rate_hz={cfg.rate_hz} epochs={cfg.epochs} "
+            f"batch_size={cfg.batch_size} num_workers={cfg.num_workers} hidden={cfg.hidden} lr={cfg.learning_rate}"
         ),
         static=True,
     )
@@ -275,6 +368,8 @@ def main(cfg: TrainConfig) -> None:
     first_val: float = run_epoch(policy, val_loader, mean, std, loss_fn, optimizer=None)
     print(f"  epoch  0  val {first_val:.4f}  (before training)")
     for epoch in range(1, cfg.epochs + 1):
+        if isinstance(train_ds, RerunIterableDataset):
+            train_ds.set_epoch(epoch)
         train_loss: float = run_epoch(policy, train_loader, mean, std, loss_fn, optimizer)
         val_loss: float = run_epoch(policy, val_loader, mean, std, loss_fn, optimizer=None)
         rr.set_time("epoch", sequence=epoch)
