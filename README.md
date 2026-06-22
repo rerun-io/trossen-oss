@@ -17,8 +17,7 @@ your machine, no cloud required.
 
 Runs Rerun's experiment loop — **Collect → Refine → Train → Deploy** — locally.
 Collect, Refine (*register* + *enrich* + *query*), and a toy **Train** work
-end-to-end today; **Deploy** is future work (see the
-[PRD roadmap](docs/prd-local-ingestion.md)).
+end-to-end today; **Deploy** is future work.
 
 - **Collect** (`src/trossen_oss/preprocessing.py`) — converts each
   `episode_<n>_proto.mcap` into layered RRDs (`episode_<NNN>_{data,urdf}.rrd`)
@@ -108,7 +107,8 @@ the dataloader Train path has no skill yet and follows the
 
 Episodes come from the public Hugging Face dataset
 [`pablovela5620/trossen-mjwarp-episodes`](https://huggingface.co/datasets/pablovela5620/trossen-mjwarp-episodes)
-— 100 bimanual manipulation episodes (~188 MB each). The robot model (URDF +
+— 100 bimanual manipulation episodes (~188 MB each; budget ~35–40 GB of disk for
+the full set of source MCAPs + converted RRDs). The robot model (URDF +
 meshes) is vendored under `assets/urdf/`.
 
 ## Make it yours
@@ -116,6 +116,4 @@ meshes) is vendored under `assets/urdf/`.
 The Trossen episodes are a stand-in for your data: run the local flow end-to-end against
 the sample episodes, then point `preprocess` at your own MCAPs — almost everything (entity
 paths, the blueprint, the query joints, the training fields) is configurable. Built with
-[pixi](https://pixi.prefix.dev) and Rerun 0.33; see
-[`docs/prd-local-ingestion.md`](docs/prd-local-ingestion.md) for the full design,
-decisions, and scope.
+[pixi](https://pixi.prefix.dev) and Rerun 0.33.
