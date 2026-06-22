@@ -129,7 +129,7 @@ class QueryConfig:
     """Configuration for the headless catalog query demo."""
 
     catalog_url: str = DEFAULT_CATALOG_URL
-    """gRPC URL of the local Rerun data platform (``rerun server``)."""
+    """gRPC URL of the local Rerun catalog (``rerun server``)."""
     dataset_name: str = "trossen_oss"
     """Catalog dataset to query."""
     joint: str = "/robot_right/joints/joint_1"

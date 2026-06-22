@@ -276,7 +276,7 @@ class TrainConfig:
     """Configuration for the toy next-state training run."""
 
     catalog_url: str = DEFAULT_CATALOG_URL
-    """gRPC URL of the local Rerun data platform (``rerun server``)."""
+    """gRPC URL of the local Rerun catalog (``rerun server``)."""
     dataset_name: str = "trossen_oss"
     """Catalog dataset to train on."""
     num_train_segments: int = 8
