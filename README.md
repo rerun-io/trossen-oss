@@ -2,7 +2,7 @@
 
 Local [Rerun](https://rerun.io) **collect → refine → train** pipeline for Trossen
 bimanual robot episodes. Convert MCAP recordings into RRDs, register them into a
-local Rerun data platform, and query, visualize, and train on them — entirely on
+local Rerun catalog, and query, visualize, and train on them — entirely on
 your machine, no cloud required.
 
 ![Episode 0 playing in the Rerun viewer](media/episode_0.gif)
@@ -27,7 +27,7 @@ end-to-end today; **Deploy** is future work.
   gripper scalar signals, and computes forward kinematics from the URDF.
 - **Refine · register** (`src/trossen_oss/catalog.py`) — registers every episode
   as a catalog *segment* (a `base` + a `urdf` layer) in a local in-memory Rerun
-  data platform, with the blueprint as the dataset default.
+  catalog, with the blueprint as the dataset default.
 - **Refine · enrich** (`src/trossen_oss/enrich.py`) — derives a per-episode
   *quality* verdict from the arm-activity query and re-registers it as a new
   `quality` layer on each segment — raw recordings untouched — flagging the
@@ -50,6 +50,12 @@ end-to-end today; **Deploy** is future work.
   LeRobot dataset first; a LeRobot export (the `rerun-lerobot` skill) is the
   alternative path and is future work here.
 
+Everything here runs against the open-source, in-memory catalog (`rerun server`)
+on a single machine — ideal for a project's worth of episodes. When you outgrow
+that (far more recordings, object-store-backed storage, shared and hosted access
+across a team), that's where [Rerun Hub](https://rerun.io) comes in: the managed,
+hosted version of the same catalog — same API and workflow, at production scale.
+
 ## Quickstart
 
 ```bash
@@ -58,7 +64,7 @@ pixi install                # solve + install the environment
 pixi run download           # fetch 10 sample episodes (or `download-all` for 100)
 pixi run preprocess         # MCAP -> outputs/rrds/*.rrd (+ blueprint)
 
-pixi run serve              # local Rerun data platform on :51234  (leave running)
+pixi run serve              # local Rerun catalog on :51234  (leave running)
 
 # in another shell:
 pixi run register           # register the RRDs as the `trossen_oss` dataset

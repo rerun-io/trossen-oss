@@ -60,7 +60,7 @@ description = "Download all 100 episode MCAPs from the Hugging Face Hub into dat
 
 # Local ingestion -> catalog pipeline.
 # `preprocess` converts each MCAP episode into outputs/rrds/episode_NNN_{data,urdf}.rrd
-# plus a shared blueprint; `serve` runs the in-memory OSS data platform; `register`
+# plus a shared blueprint; `serve` runs the in-memory OSS catalog server; `register`
 # registers the RRDs as a catalog dataset; `enrich` attaches a derived quality layer
 # (run `serve` in another shell first).
 [tool.pixi.tasks.preprocess]
@@ -69,7 +69,7 @@ description = "Convert episode MCAP into RRDs + blueprint under outputs/"
 
 [tool.pixi.tasks.serve]
 cmd = "rerun server --port 51234"
-description = "Start the local in-memory Rerun data platform (catalog) on :51234"
+description = "Start the local in-memory Rerun catalog on :51234"
 
 [tool.pixi.tasks.register]
 cmd = "python tools/register_catalog.py"

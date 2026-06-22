@@ -93,7 +93,7 @@ class EnrichConfig:
     """Configuration for the post-registration enrichment step."""
 
     catalog_url: str = DEFAULT_CATALOG_URL
-    """gRPC URL of the local Rerun data platform (``rerun server``)."""
+    """gRPC URL of the local Rerun catalog (``rerun server``)."""
     dataset_name: str = "trossen_oss"
     """Catalog dataset whose segments are enriched."""
     min_motion: float = 6.0

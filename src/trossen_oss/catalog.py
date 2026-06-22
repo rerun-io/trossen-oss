@@ -1,4 +1,4 @@
-"""Register locally-generated RRDs into a Rerun data-platform catalog.
+"""Register locally-generated RRDs into a Rerun catalog.
 
 The local catalog is the in-memory ``rerun server`` (start it with
 ``rerun server --port 51234``). Each episode is one *segment* whose id is the
@@ -16,7 +16,7 @@ from pathlib import Path
 from rerun.catalog import CatalogClient, DatasetEntry, OnDuplicateSegmentLayer
 
 DEFAULT_CATALOG_URL: str = "rerun+http://127.0.0.1:51234"
-"""gRPC URL of a locally-running ``rerun server`` data platform."""
+"""gRPC URL of a locally-running ``rerun server`` catalog."""
 
 
 def _episode_rrds(rrd_dir: Path) -> tuple[list[Path], list[Path]]:
@@ -41,7 +41,7 @@ def register_episodes(
     shared ``recording_id``. The blueprint is registered once as the dataset default.
 
     Args:
-        catalog_url: gRPC URL of the local Rerun data platform.
+        catalog_url: gRPC URL of the local Rerun catalog.
         dataset_name: Catalog dataset name to (re)create.
         rrd_dir: Directory holding the per-episode ``*_data.rrd`` / ``*_urdf.rrd`` files.
         blueprint: Optional saved ``.rbl`` registered as the dataset default blueprint.
@@ -85,7 +85,7 @@ class CatalogConfig:
     output_dir: Path = Path("outputs")
     """Directory holding outputs/rrds/*.rrd and robot_data_preprocessing.rbl."""
     catalog_url: str = DEFAULT_CATALOG_URL
-    """gRPC URL of the local Rerun data platform (``rerun server``)."""
+    """gRPC URL of the local Rerun catalog (``rerun server``)."""
     dataset_name: str = "trossen_oss"
     """Catalog dataset name to (re)create."""
     recreate: bool = True
