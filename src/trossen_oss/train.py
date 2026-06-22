@@ -227,16 +227,15 @@ def make_loader(dataset: RerunDataset, batch_size: int, num_workers: int) -> Dat
     Shuffling is the map dataset's sampler or — for the iterable dataset — internal,
     reseeded per epoch via :meth:`set_epoch`. Workers prefetch from the server.
     """
-    loader_kwargs: dict[str, object] = {
-        "batch_size": batch_size,
-        "collate_fn": NextStateCollate(),
-        "num_workers": num_workers,
-        "shuffle": isinstance(dataset, RerunMapDataset),
-    }
-    if num_workers > 0:
-        loader_kwargs["persistent_workers"] = True
-        loader_kwargs["prefetch_factor"] = 4
-    return DataLoader(dataset, **loader_kwargs)  # type: ignore[arg-type]
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        collate_fn=NextStateCollate(),
+        num_workers=num_workers,
+        shuffle=isinstance(dataset, RerunMapDataset),
+        persistent_workers=num_workers > 0,
+        prefetch_factor=4 if num_workers > 0 else None,
+    )
 
 
 def runs_blueprint() -> rrb.Blueprint:
@@ -316,9 +315,11 @@ class TrainConfig:
 def main(cfg: TrainConfig) -> None:
     """Curate a dataset by query, stream-train the toy next-state policy, and log the run to Rerun."""
     # The Rerun dataloader needs 'spawn' for DataLoader workers (forked workers deadlock on
-    # their first catalog call). Set it before any dataset is built so num_workers > 0 is safe
-    # and the construction-time warning stays quiet; harmless when num_workers == 0.
-    torch_mp.set_start_method("spawn", force=True)
+    # their first catalog call). Only switch the start method when workers are actually
+    # requested, before any dataset is built — the default num_workers == 0 path leaves
+    # multiprocessing untouched, like the upstream example.
+    if cfg.num_workers > 0:
+        torch_mp.set_start_method("spawn", force=True)
 
     client: CatalogClient = CatalogClient(cfg.catalog_url)
     dataset: DatasetEntry = client.get_dataset(cfg.dataset_name)
