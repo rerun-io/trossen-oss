@@ -72,6 +72,9 @@ def register_episodes(
     ).wait()
     if blueprint is not None and blueprint.exists():
         dataset.register_blueprint(blueprint.resolve().as_uri(), set_default=True)
+        print(f"  registered default blueprint: {blueprint.name}")
+    elif blueprint is not None:
+        print(f"  no blueprint registered (not found at {blueprint})")
     return dataset
 
 
@@ -85,6 +88,10 @@ class CatalogConfig:
     """gRPC URL of the local Rerun data platform (``rerun server``)."""
     dataset_name: str = "trossen_oss"
     """Catalog dataset name to (re)create."""
+    recreate: bool = True
+    """Delete and recreate the dataset before registering. Pass ``--no-recreate`` to
+    re-register onto the existing dataset (REPLACE per layer) — the experiment loop's
+    "fix a bad pass by re-registering" idiom, without rebuilding the whole dataset."""
 
 
 def main(cfg: CatalogConfig) -> None:
@@ -94,6 +101,7 @@ def main(cfg: CatalogConfig) -> None:
         cfg.dataset_name,
         cfg.output_dir / "rrds",
         cfg.output_dir / "robot_data_preprocessing.rbl",
+        recreate=cfg.recreate,
     )
     segments: list[str] = dataset.segment_ids()
     print(f"Registered dataset '{dataset.name}' on {cfg.catalog_url} with {len(segments)} segment(s):")

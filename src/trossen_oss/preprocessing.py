@@ -36,7 +36,11 @@ from rerun.urdf import UrdfTree
 from tqdm import tqdm
 
 APPLICATION_ID: str = "rerun_example_robot_data_preprocessing"
-"""Shared application id for every episode recording and the blueprint."""
+"""Shared application id for every episode recording, the blueprint, and the derived
+enrich layers. They must all agree on the application id, or the catalog's default
+blueprint stops matching a segment and the viewer falls back to an auto layout (the
+cameras lose their world target). Kept as the upstream example id so already-registered
+RRDs stay valid — renaming would re-app-id every layer and break that blueprint match."""
 
 EPISODE_MCAP_GLOB: str = "episode_*_proto.mcap"
 """Glob matching source episode MCAP files."""
@@ -90,16 +94,34 @@ def place_video_in_frame_lens(frame: str) -> MutateLens:
 
 
 def joints_batch_lens(robot_urdf: UrdfTree, to_entity: str = "/tmp") -> DeriveLens:
-    """Computes intermediate transform batches from each joint state message using the URDF."""
+    """Computes intermediate transform batches from each joint state message using the URDF.
+
+    The JointState message ships ``joint_names=None``, so ``joint_positions`` is ordered
+    *positionally* to match the URDF's non-fixed joint declaration order (``joint_0`` …
+    ``joint_5`` then the gripper carriage). We pair each value vector with the URDF joint
+    names in that same order; the arity check makes a schema change fail loudly instead of
+    producing a silently-wrong pose (``rerun-urdf``: never assume field order matches URDF).
+    """
     joint_names: list[str] = [joint.name for joint in robot_urdf.joints() if joint.joint_type != "fixed"]
+    expected: int = len(joint_names)
+
+    def compute(joint_state_messages: pa.Array) -> pa.Array:
+        values: pa.Array = Selector(".joint_positions").execute(joint_state_messages)
+        if len(values) > 0:
+            lengths: pa.Array = pc.list_value_length(values)  # type: ignore[missing-attribute]
+            low: int = pc.min(lengths).as_py()  # type: ignore[missing-attribute]
+            high: int = pc.max(lengths).as_py()  # type: ignore[missing-attribute]
+            assert low == expected == high, (
+                f"joint_positions arity {[low, high]} != {expected} URDF non-fixed joints {joint_names}"
+            )
+        return robot_urdf.compute_joint_transform_batches(
+            names=pa.array([joint_names] * len(joint_state_messages), type=pa.list_(pa.string())),
+            values=values,
+        )
+
     return DeriveLens("schemas.proto.JointState:message", output_entity=to_entity).to_component(
         "rerun.urdf.JointTransformBatch",
-        Selector(".").pipe(
-            lambda joint_state_messages: robot_urdf.compute_joint_transform_batches(
-                names=pa.array([joint_names] * len(joint_state_messages), type=pa.list_(pa.string())),
-                values=Selector(".joint_positions").execute(joint_state_messages),
-            )
-        ),
+        Selector(".").pipe(compute),
     )
 
 
@@ -189,7 +211,6 @@ def robot_data_blueprint() -> rrb.Blueprint:
                         "+ /robot_left/**",
                         "+ /robot_right/**",
                         "+ /external/**",
-                        "+ /transforms_static/**",
                         "+ /trossen_ai_scene/**",
                     ],
                     spatial_information=rrb.SpatialInformation(target_frame="world"),
@@ -301,6 +322,10 @@ def build_episode_data_stream(
 
     # For each robot, compute the joint transforms in batches and convert to Transform3D chunks.
     # We keep the original joint states in the stream ("forward_all") while dropping temporary batches.
+    # NB: the derived FK /tf lands in this *base* recording (mirroring the upstream
+    # robot_data_preprocessing example). rerun-data-model would put computed FK in a separate
+    # layer; we keep it here for parity with the reference and because /tf is what makes the
+    # base recording independently viewable. The episode-independent URDF model is the layer.
     mcap_stream = (
         mcap_stream.lenses(
             joints_batch_lens(robot_urdf_left), content="/robot_left/joint_states", output_mode="forward_all"
@@ -356,7 +381,10 @@ def build_urdf_stream(
         )
         .drop(content="/robot_right/wxai/collision_geometries/**")
     )
-    return LazyChunkStream.merge(robot_urdf_left_stream, robot_urdf_right_stream, scene_urdf.stream())
+    # Drop the scene's collision geometry too (a stray table-sized box), matching the
+    # robot-mesh treatment so only visual meshes reach the 3D view.
+    scene_stream: LazyChunkStream = scene_urdf.stream().drop(content="/trossen_ai_scene/collision_geometries/**")
+    return LazyChunkStream.merge(robot_urdf_left_stream, robot_urdf_right_stream, scene_stream)
 
 
 def main(cfg: PreprocessingConfig) -> None:
