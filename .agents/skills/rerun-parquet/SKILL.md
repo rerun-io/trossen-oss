@@ -13,6 +13,12 @@ timelines. The whole job is configuration; fill in the `rerun-data-model`
 mapping table first, then express it through the constructor. Stream mechanics
 after `.stream()` are in `rerun-chunk-processing`.
 
+**The whole table is configuration, not code.** If you find yourself building
+`Chunk.from_columns` from a parquet, or munging it in pandas first, stop —
+`ParquetReader` + `ColumnRule` almost certainly expresses it. Anything it cannot
+(per-row entity routing, derived values, unit conversion) belongs in lenses
+downstream, not in pre-pandas munging; keep the pipeline columnar.
+
 Verified against `rerun-sdk 0.34.0a1`.
 
 ## The API
