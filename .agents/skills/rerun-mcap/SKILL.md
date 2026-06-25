@@ -43,6 +43,31 @@ the rest emit MCAP metadata (schemas, stats, attachments) as entities.
 
 ## What a topic becomes
 
+With the default decoders (`decoders=None`), the message **schema name** decides
+what a topic becomes — **pass archetypes through, lens only the raw `:message`
+topics**:
+
+| MCAP schema name | decodes to | what to do |
+| --- | --- | --- |
+| `foxglove.FrameTransforms` | `Transform3D` | pass through; do **not** hand-build |
+| `foxglove.CameraCalibration` | `Pinhole` | pass through |
+| `foxglove.CompressedVideo` | `VideoStream` (real sample bytes) + `CoordinateFrame` | pass through |
+| other `foxglove.*` well-known types | the matching archetype | pass through |
+| ros2 well-known types (`ros2msg` / `ros2_reflection`) | archetype | pass through |
+| your own `schemas.proto.*` / custom protobuf | one `<schema.name>:message` struct | attach semantics with a `DeriveLens` + `Selector` |
+
+So a camera topic already arrives as `Pinhole`, its video as `VideoStream`, and
+a `frame_transforms` topic as `Transform3D` — only custom signal messages (joint
+states, gripper status) come through raw and need lenses.
+
+The `foxglove` decoder does the schema→archetype mapping; because foxglove
+messages are protobuf-*encoded* it rides on the `protobuf` decoder, so keep
+`decoders=None` (verified: `decoders=["protobuf"]` alone leaves
+`foxglove.CameraCalibration` a raw `:message`; adding `foxglove` makes it a
+`Pinhole`). Confirm on your file: `McapReader(path).stream()`, then read
+`McapSchema:name` and a few `Chunk.format()` before deciding anything is missing
+or needs rebuilding.
+
 - Entity path = topic name (`/sensors/joint_states` stays
   `/sensors/joint_states`). Filter early:
   `McapReader(path).stream().filter(content="/sensors/**")`.
@@ -132,6 +157,17 @@ descriptor patch above.
    `timestamp_offset_ns` rather than mutating timestamps downstream.
 4. Decoder subsets silently skip topics no decoder claims; when a topic is
    missing, retry with `decoders=None` to rule out decoder selection.
+5. Example fix-lenses are dataset-specific. Before copying a `MutateLens` like
+   the `Pinhole:resolution` swap from the `robot_data_preprocessing` example,
+   read the raw component from `McapReader(path).stream()` and confirm the defect
+   exists in *your* data — applied blindly it corrupts correct calibration (a
+   correct 648×480 flipped to 480×648).
+6. `foxglove` derives both the camera's `Pinhole:child_frame` and the video's
+   `CoordinateFrame:frame` from each message's `.frame_id` (plus an image-plane
+   suffix), so they **match** when the calibration and video topics share a
+   `frame_id`. Only when those topics carry *different* `frame_id`s does the
+   video frame diverge and orphan the video from its image plane — re-home it
+   then with a per-camera `MutateLens("CoordinateFrame:frame", ...)`.
 
 ## References
 
